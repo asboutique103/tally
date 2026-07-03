@@ -1,0 +1,42 @@
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { Layout } from './components/Layout';
+import { Dashboard } from './pages/Dashboard';
+import { Bills } from './pages/Bills';
+import { Materials } from './pages/Materials';
+import { Payments } from './pages/Payments';
+import { Receipts } from './pages/Receipts';
+import { Reports } from './pages/Reports';
+import { Settings } from './pages/Settings';
+import { Sites } from './pages/Sites';
+import { Suppliers } from './pages/Suppliers';
+import { Supplies } from './pages/Supplies';
+import { Accounts } from './pages/Accounts';
+import { AuditTrail } from './pages/AuditTrail';
+import { InventoryLedger } from './pages/InventoryLedger';
+import { AppProvider } from './store/AppContext';
+
+export default function App() {
+  return (
+    <AppProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route index element={<Dashboard />} />
+            <Route path="materials" element={<Materials />} />
+            <Route path="receipts" element={<Receipts />} />
+            <Route path="supplies" element={<Supplies />} />
+            <Route path="suppliers" element={<Suppliers />} />
+            <Route path="sites" element={<Sites />} />
+            <Route path="bills" element={<Bills />} />
+            <Route path="payments" element={<Payments />} />
+            <Route path="stock-ledger" element={<InventoryLedger />} />
+            <Route path="accounts" element={<Accounts />} />
+            <Route path="reports" element={<Reports />} />
+            <Route path="audit" element={<AuditTrail />} />
+            <Route path="settings" element={<Settings />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </AppProvider>
+  );
+}
