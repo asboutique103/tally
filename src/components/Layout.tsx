@@ -18,8 +18,9 @@ import {
   X,
 } from 'lucide-react';
 import { useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useApp } from '../store/AppContext';
+import { useAuth } from '../store/AuthContext';
 
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -40,6 +41,13 @@ const nav = [
 export function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { data } = useApp();
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login', { replace: true });
+  };
 
   return (
     <div className="app-shell">
@@ -74,9 +82,9 @@ export function Layout() {
           </div>
           <div className="topbar-right">
             <div className="notification-pill"><Package size={16} /><span>{data.materials.length} materials</span></div>
-            <button className="profile-button">
+            <button className="profile-button" onClick={handleLogout} title="Sign out">
               <span className="avatar">AR</span>
-              <span className="profile-copy"><strong>Admin</strong><small>Owner access</small></span>
+              <span className="profile-copy"><strong>Admin</strong><small>Sign out</small></span>
               <ChevronDown size={16} />
             </button>
           </div>
