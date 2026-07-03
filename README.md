@@ -1,124 +1,63 @@
-# Tally - ConstructFlow Enterprise v2.0.1
+# ConstructFlow Enterprise v2.0
 
-A React + TypeScript application for construction project management.
+Construction ERP combining materials, stock, supplier billing, client invoicing, payments, double-entry accounting, project consumption and audit control.
 
-## Project Structure
+## What is functional now
 
-```
-src/
-├── components/      # Reusable React components
-│   ├── Modal.tsx
-│   ├── StatCard.tsx
-│   ├── EmptyState.tsx
-│   └── TransactionItemsEditor.tsx
-├── pages/          # Page components
-│   ├── Dashboard.tsx
-│   ├── Materials.tsx
-│   ├── Sites.tsx
-│   └── Settings.tsx
-├── lib/            # Utility functions and helpers
-│   └── helpers.ts
-├── store/          # State management
-│   └── AppContext.tsx
-├── data/           # Data and seed files
-│   └── seed.ts
-├── types.ts        # TypeScript type definitions
-├── App.tsx         # Main application component
-├── main.tsx        # Entry point
-├── vite-env.d.ts   # Vite environment types
-└── styles.css      # Global styles
+- Material, supplier and construction-site masters
+- Goods receipt notes and direct-to-site receipts
+- Material issue notes with strict negative-stock control
+- Purchase invoices and client invoices
+- **Invoice-to-stock synchronization**
+  - Purchase invoice + `Auto Post` adds quantities to central stock
+  - Client invoice + `Auto Post` deducts quantities from central stock
+  - `Accounting Only` posts finance and GST without moving stock
+- Invoice-to-accounting synchronization
+  - Purchase/client invoices automatically create balanced vouchers
+  - Payments and collections automatically update cash/bank and receivable/payable accounts
+  - Site issues automatically post material consumption against inventory
+- Stock movement ledger with document-level traceability and running balance
+- Day Book, General Ledger, Trial Balance, Profit & Loss and Balance Sheet
+- Manual Journal, Contra, Receipt, Payment, Debit Note and Credit Note vouchers
+- Supplier payable ledger and client/project billing
+- GST/tax summary
+- Audit trail for creation, updates and deletions
+- Responsive desktop, tablet and mobile UI
+- Browser-local demo mode and Supabase-ready schema
 
-supabase/
-└── migrations/     # Database migrations
-    └── 20260703_000001_constructflow_schema.sql
-```
-
-## Getting Started
-
-### Prerequisites
-- Node.js (v16 or higher)
-- npm or yarn
-
-### Installation
-
-1. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-2. **Set up environment variables**
-   Create a `.env` file in the root directory with your configuration:
-   ```
-   VITE_SUPABASE_URL=your_supabase_url
-   VITE_SUPABASE_ANON_KEY=your_supabase_key
-   ```
-
-3. **Run development server**
-   ```bash
-   npm run dev
-   ```
-   The app will be available at `http://localhost:5173`
-
-### Building
+## Run locally
 
 ```bash
+npm install
+npm run dev
+```
+
+Production validation:
+
+```bash
+npm run lint
 npm run build
-```
-
-This creates a production-ready build in the `dist/` directory.
-
-### Preview Production Build
-
-```bash
 npm run preview
 ```
 
-## Features
+## Supabase
 
-- **Dashboard**: View project overview and statistics
-- **Materials Management**: Track construction materials
-- **Sites Management**: Manage project sites
-- **Settings**: Configure application preferences
-- **Transaction Editing**: Edit and manage transaction items
+For a new database, run these files in order:
 
-## Database
+1. `supabase/migrations/20260703_000001_constructflow_schema.sql`
+2. `supabase/migrations/20260703_000002_enterprise_accounting.sql`
 
-The project uses Supabase for backend services. Database schema is defined in:
-```
-supabase/migrations/20260703_000001_constructflow_schema.sql
-```
+The second migration adds integrated stock posting, double-entry accounts, automatic vouchers, stricter stock guards and financial reporting views.
 
-## Technologies
+## Important accounting behavior
 
-- **React 18** - UI library
-- **TypeScript** - Type-safe JavaScript
-- **Vite** - Fast build tool
-- **Supabase** - Backend as a Service
+A physical delivery should normally be entered as either:
 
-## Development Workflow
+- GRN followed by an `Accounting Only` supplier invoice, or
+- a purchase invoice with `Auto Post` when no separate GRN is used.
 
-1. Create a feature branch:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
+Do not auto-post both a GRN and the matching purchase invoice, otherwise the same physical quantity is intentionally counted twice. This choice exists because many construction companies receive materials before the supplier invoice arrives.
 
-2. Make changes and test locally:
-   ```bash
-   npm run dev
-   ```
+## Hosting
 
-3. Build and verify:
-   ```bash
-   npm run build
-   ```
-
-4. Commit and push:
-   ```bash
-   git add .
-   git commit -m "Description of changes"
-   git push origin feature/your-feature-name
-   ```
-
-## License
-
-TBD
+This app uses `BrowserRouter`. Configure the host to rewrite unknown routes to `index.html`.
