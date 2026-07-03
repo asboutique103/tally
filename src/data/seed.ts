@@ -57,7 +57,7 @@ export const seedData: AppData = {
     { id: 'audit-1', timestamp: now, actor: 'System', action: 'Created', module: 'Company', documentNo: 'INIT', details: 'ConstructFlow enterprise accounting workspace initialized.' },
   ],
   settings: {
-    companyName: 'ConstructFlow Projects Private Limited',
+    companyName: 'VMV Construction Project Private Limited',
     gstin: '33AACCC9090A1Z1',
     phone: '+91 98765 43210',
     email: 'accounts@constructflow.in',
