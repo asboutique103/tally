@@ -1,5 +1,7 @@
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import type { ReactElement } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Layout } from './components/Layout';
+import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { Bills } from './pages/Bills';
 import { Materials } from './pages/Materials';
@@ -14,13 +16,25 @@ import { Accounts } from './pages/Accounts';
 import { AuditTrail } from './pages/AuditTrail';
 import { InventoryLedger } from './pages/InventoryLedger';
 import { AppProvider } from './store/AppContext';
+import { AuthProvider, useAuth } from './store/AuthContext';
+
+function RequireAuth({ children }: { children: ReactElement }) {
+  const { isAuthenticated } = useAuth();
+  const location = useLocation();
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+  }
+  return children;
+}
 
 export default function App() {
   return (
-    <AppProvider>
+    <AuthProvider>
+      <AppProvider>
       <BrowserRouter>
         <Routes>
-          <Route element={<Layout />}>
+          <Route path="/login" element={<Login />} />
+          <Route element={<RequireAuth><Layout /></RequireAuth>}>
             <Route index element={<Dashboard />} />
             <Route path="materials" element={<Materials />} />
             <Route path="receipts" element={<Receipts />} />
@@ -37,6 +51,7 @@ export default function App() {
           </Route>
         </Routes>
       </BrowserRouter>
-    </AppProvider>
+      </AppProvider>
+    </AuthProvider>
   );
 }
