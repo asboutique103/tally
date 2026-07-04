@@ -1,3 +1,4 @@
+import * as XLSX from 'xlsx';
 import type { AppData, Bill, DayAttendance, DeductionDecision, Employee, InventoryRow, StockMovement, TransactionItem, Voucher, VoucherLine } from '../types';
 
 export const uid = (prefix = 'id') => `${prefix}-${crypto.randomUUID()}`;
@@ -186,16 +187,14 @@ export const accountBalances = (data: AppData) => data.accounts.map((account) =>
 
 export const downloadCsv = (filename: string, rows: Record<string, unknown>[]) => {
   if (!rows.length) return;
-  const headers = Object.keys(rows[0]);
-  const escape = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-  const csv = [headers.map(escape).join(','), ...rows.map((row) => headers.map((header) => escape(row[header])).join(','))].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
+  const workbook = XLSX.utils.book_new();
+  const sheet = XLSX.utils.json_to_sheet(rows);
+  const widths = Object.keys(rows[0]).map((key) => ({
+    wch: Math.min(40, Math.max(key.length, ...rows.map((row) => String(row[key] ?? '').length)) + 2),
+  }));
+  sheet['!cols'] = widths;
+  XLSX.utils.book_append_sheet(workbook, sheet, 'Report');
+  XLSX.writeFile(workbook, filename.replace(/\.csv$/i, '.xlsx'));
 };
 
 
