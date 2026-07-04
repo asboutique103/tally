@@ -19,6 +19,10 @@ const migrateData = (input: Partial<AppData>): AppData => {
     payments: input.payments ?? structuredClone(seedData.payments),
     accounts: input.accounts?.length ? input.accounts : structuredClone(seedData.accounts),
     vouchers: input.vouchers ?? [],
+    employees: input.employees ?? structuredClone(seedData.employees),
+    attendance: input.attendance ?? {},
+    salaryAdvances: input.salaryAdvances ?? [],
+    deductionDecisions: input.deductionDecisions ?? {},
     auditLog: input.auditLog ?? structuredClone(seedData.auditLog),
     settings: {
       ...seedData.settings,
