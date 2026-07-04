@@ -1,4 +1,4 @@
-import type { AppData, Bill, InventoryRow, StockMovement, TransactionItem, Voucher, VoucherLine } from '../types';
+import type { AppData, Bill, DayAttendance, DeductionDecision, Employee, InventoryRow, StockMovement, TransactionItem, Voucher, VoucherLine } from '../types';
 
 export const uid = (prefix = 'id') => `${prefix}-${crypto.randomUUID()}`;
 export const today = () => new Date().toISOString().slice(0, 10);
@@ -197,3 +197,105 @@ export const downloadCsv = (filename: string, rows: Record<string, unknown>[]) =
   anchor.click();
   URL.revokeObjectURL(url);
 };
+
+
+// ── Staff attendance & payroll ─────────────────────────────────────────────
+export const attendanceKey = (employeeId: string, year: number, month: number, day: number) => `${employeeId}_${year}_${month}_${day}`;
+
+export const defaultDayAttendance = (): DayAttendance => ({ present: false, half: false, woff: false });
+
+export const defaultDeductionDecision = (): DeductionDecision => ({ deductAdvance: false, deductOther: true });
+
+export const daysInMonth = (year: number, month: number) => new Date(year, month, 0).getDate();
+
+export const monthLabel = (year: number, month: number) => new Date(year, month - 1, 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+
+export interface MonthAttendanceSummary {
+  presentDays: number;
+  halfDays: number;
+  weekOffs: number;
+  absentDays: number;
+  payableDays: number;
+}
+
+export const summarizeAttendance = (data: AppData, employeeId: string, year: number, month: number): MonthAttendanceSummary => {
+  const total = daysInMonth(year, month);
+  let presentDays = 0, halfDays = 0, weekOffs = 0;
+  for (let day = 1; day <= total; day++) {
+    const entry = data.attendance[attendanceKey(employeeId, year, month, day)];
+    if (!entry) continue;
+    if (entry.woff) weekOffs++;
+    else if (entry.half) halfDays++;
+    else if (entry.present) presentDays++;
+  }
+  const absentDays = Math.max(0, total - presentDays - halfDays - weekOffs);
+  const payableDays = presentDays + halfDays * 0.5 + weekOffs;
+  return { presentDays, halfDays, weekOffs, absentDays, payableDays };
+};
+
+export interface EmployeeSalaryBreakdown {
+  perDay: number;
+  earned: number;
+  advanceDeduction: number;
+  otherDeduction: number;
+  totalDeductions: number;
+  net: number;
+}
+
+export const calcEmployeeSalary = (data: AppData, employee: Employee, year: number, month: number, decision: DeductionDecision): EmployeeSalaryBreakdown => {
+  const total = daysInMonth(year, month);
+  const attendance = summarizeAttendance(data, employee.id, year, month);
+  const perDay = employee.grossSalary / total;
+  const earned = Math.round(perDay * attendance.payableDays);
+  const outstandingAdvance = data.salaryAdvances.filter((advance) => advance.employeeId === employee.id && !advance.cleared).reduce((sum, advance) => sum + advance.amount, 0);
+  const advanceDeduction = decision.deductAdvance ? Math.min(outstandingAdvance, earned) : 0;
+  const otherDeduction = decision.deductOther ? employee.otherDeduction : 0;
+  const totalDeductions = advanceDeduction + otherDeduction;
+  return { perDay, earned, advanceDeduction, otherDeduction, totalDeductions, net: Math.max(0, earned - totalDeductions) };
+};
+
+export const outstandingAdvanceFor = (data: AppData, employeeId: string) =>
+  data.salaryAdvances.filter((advance) => advance.employeeId === employeeId && !advance.cleared).reduce((sum, advance) => sum + advance.amount, 0);
+
+// ── Analytics ────────────────────────────────────────────────────────────
+export interface DepartmentAnalytics {
+  department: string;
+  employees: number;
+  gross: number;
+  net: number;
+  presentDays: number;
+  absentDays: number;
+}
+
+export const departmentAnalytics = (data: AppData, employees: Employee[], year: number, month: number): DepartmentAnalytics[] => {
+  const map = new Map<string, DepartmentAnalytics>();
+  employees.forEach((employee) => {
+    const key = employee.department || 'Unassigned';
+    const current = map.get(key) ?? { department: key, employees: 0, gross: 0, net: 0, presentDays: 0, absentDays: 0 };
+    const attendance = summarizeAttendance(data, employee.id, year, month);
+    const breakdown = calcEmployeeSalary(data, employee, year, month, data.deductionDecisions[employee.id] ?? defaultDeductionDecision());
+    current.employees += 1;
+    current.gross += employee.grossSalary;
+    current.net += breakdown.net;
+    current.presentDays += attendance.presentDays;
+    current.absentDays += attendance.absentDays;
+    map.set(key, current);
+  });
+  return [...map.values()];
+};
+
+export const branchAnalytics = (data: AppData, employees: Employee[]) => {
+  const map = new Map<string, { branch: string; employees: number; gross: number }>();
+  employees.forEach((employee) => {
+    const current = map.get(employee.branch) ?? { branch: employee.branch, employees: 0, gross: 0 };
+    current.employees += 1;
+    current.gross += employee.grossSalary;
+    map.set(employee.branch, current);
+  });
+  return [...map.values()];
+};
+
+export const attendanceMixFor = (data: AppData, employees: Employee[], year: number, month: number) => employees.reduce((acc, employee) => {
+  const s = summarizeAttendance(data, employee.id, year, month);
+  return { present: acc.present + s.presentDays, half: acc.half + s.halfDays, weekOff: acc.weekOff + s.weekOffs, absent: acc.absent + s.absentDays };
+}, { present: 0, half: 0, weekOff: 0, absent: 0 });
