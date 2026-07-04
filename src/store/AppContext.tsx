@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { loadLocalData, resetLocalData, saveLocalData } from '../lib/storage';
 import { uid } from '../lib/helpers';
-import type { AppData, AuditEntry, Bill, Material, Payment, Receipt, Site, Supplier, Supply, Voucher } from '../types';
+import { attendanceKey, defaultDeductionDecision } from '../lib/helpers';
+import type { AppData, AuditEntry, Bill, DayAttendance, DeductionDecision, Employee, Material, Payment, Receipt, SalaryAdvance, Site, Supplier, Supply, Voucher } from '../types';
 
 interface AppContextValue {
   data: AppData;
@@ -22,6 +23,13 @@ interface AppContextValue {
   deletePayment: (id: string) => void;
   addVoucher: (voucher: Voucher) => void;
   deleteVoucher: (id: string) => void;
+  upsertEmployee: (employee: Employee) => void;
+  deleteEmployee: (id: string) => void;
+  setAttendanceDay: (employeeId: string, year: number, month: number, day: number, value: DayAttendance) => void;
+  setDeductionDecision: (employeeId: string, decision: DeductionDecision) => void;
+  getDeductionDecision: (employeeId: string) => DeductionDecision;
+  addSalaryAdvance: (advance: SalaryAdvance) => void;
+  clearSalaryAdvance: (id: string) => void;
   resetDemo: () => void;
 }
 
@@ -66,6 +74,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     deletePayment: (id) => mutate((current) => { const item = current.payments.find((candidate) => candidate.id === id); const next = { ...current, payments: current.payments.filter((candidate) => candidate.id !== id), auditLog: [audit('Deleted', 'Payments', item?.paymentNo ?? id, 'Bill balance recalculated'), ...current.auditLog] }; return { ...next, bills: recomputeBillStatuses(next) }; }),
     addVoucher: (voucher) => mutate((current) => ({ ...current, vouchers: [voucher, ...current.vouchers], auditLog: [audit('Created', 'Accounting Vouchers', voucher.voucherNo, `${voucher.type} voucher posted`), ...current.auditLog] })),
     deleteVoucher: (id) => mutate((current) => { const item = current.vouchers.find((candidate) => candidate.id === id); return { ...current, vouchers: current.vouchers.filter((candidate) => candidate.id !== id), auditLog: [audit('Deleted', 'Accounting Vouchers', item?.voucherNo ?? id, 'Manual voucher removed'), ...current.auditLog] }; }),
+    upsertEmployee: (employee) => mutate((current) => ({ ...current, employees: upsert(current.employees, employee), auditLog: [audit(current.employees.some((item) => item.id === employee.id) ? 'Updated' : 'Created', 'Staff & Attendance', employee.code, employee.name), ...current.auditLog] })),
+    deleteEmployee: (id) => mutate((current) => { const item = current.employees.find((candidate) => candidate.id === id); return { ...current, employees: current.employees.filter((candidate) => candidate.id !== id), auditLog: [audit('Deleted', 'Staff & Attendance', item?.code ?? id, item?.name ?? ''), ...current.auditLog] }; }),
+    setAttendanceDay: (employeeId, year, month, day, value) => mutate((current) => ({ ...current, attendance: { ...current.attendance, [attendanceKey(employeeId, year, month, day)]: value } })),
+    setDeductionDecision: (employeeId, decision) => mutate((current) => ({ ...current, deductionDecisions: { ...current.deductionDecisions, [employeeId]: decision } })),
+    getDeductionDecision: (employeeId) => data.deductionDecisions[employeeId] ?? defaultDeductionDecision(),
+    addSalaryAdvance: (advance) => mutate((current) => ({ ...current, salaryAdvances: [advance, ...current.salaryAdvances], auditLog: [audit('Created', 'Staff & Attendance', advance.id, `Advance of ${advance.amount} recorded`), ...current.auditLog] })),
+    clearSalaryAdvance: (id) => mutate((current) => ({ ...current, salaryAdvances: current.salaryAdvances.map((advance) => advance.id === id ? { ...advance, cleared: true } : advance), auditLog: [audit('Updated', 'Staff & Attendance', id, 'Advance marked as cleared'), ...current.auditLog] })),
     resetDemo: () => {
       const reset = resetLocalData();
       reset.auditLog = [audit('Reset', 'Company', 'RESET', 'Demo workspace restored to default data'), ...reset.auditLog];
