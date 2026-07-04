@@ -18,6 +18,7 @@ import {
   ReceiptText,
   Settings,
   Truck,
+  Users,
 } from 'lucide-react';
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
@@ -35,6 +36,7 @@ const nav = [
   { to: '/bills', label: 'Bills & Invoices', icon: ReceiptText },
   { to: '/payments', label: 'Payments', icon: CreditCard },
   { to: '/accounts', label: 'Accounts & Vouchers', icon: BookOpenCheck },
+  { to: '/attendance', label: 'Staff & Attendance', icon: Users },
   { to: '/reports', label: 'Reports & Ledgers', icon: ClipboardList },
   { to: '/audit', label: 'Audit Trail', icon: ShieldCheck },
   { to: '/settings', label: 'Settings', icon: Settings },
