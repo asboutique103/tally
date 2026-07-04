@@ -527,3 +527,22 @@ input:focus, select:focus, textarea:focus { border-color: #a6a7f8; box-shadow: 0
   color: #64748b;
   font-size: 14px;
 }
+
+/* Staff attendance & payroll */
+.month-select { min-height: 38px; border-radius: 10px; border: 1px solid var(--line); background: white; padding: 0 10px; font-size: 12px; font-weight: 700; color: var(--ink); }
+.attendance-table td, .attendance-table th { text-align: center; padding: 6px; }
+.attendance-table td:first-child, .attendance-table th:first-child { text-align: left; min-width: 170px; }
+.link-button { background: none; border: none; padding: 0; cursor: pointer; color: var(--primary); font: inherit; }
+.day-cell { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line); background: #fafbfe; font-size: 10px; font-weight: 800; color: var(--muted); cursor: pointer; }
+.day-cell.day-present { background: var(--teal-soft); color: #087765; border-color: transparent; }
+.day-cell.day-half { background: var(--amber-soft); color: #9a5f05; border-color: transparent; }
+.day-cell.day-woff { background: #eef0f6; color: #566176; border-color: transparent; }
+.meal-cost { color: var(--muted); font-size: 10px; }
+.meal-row td { background: #fafbfe; padding: 14px !important; }
+.meal-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.meal-day { display: flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; background: white; }
+.meal-day span { font-size: 10px; font-weight: 700; color: var(--muted); min-width: 14px; }
+.meal-day button { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 6px; border: 1px solid var(--line); background: white; color: var(--muted); }
+.meal-day button.meal-on { background: var(--primary-soft); color: var(--primary); border-color: transparent; }
+.deduction-toggle { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.deduction-toggle input { width: 14px; height: 14px; }

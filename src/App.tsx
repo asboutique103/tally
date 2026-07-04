@@ -15,6 +15,7 @@ import { Supplies } from './pages/Supplies';
 import { Accounts } from './pages/Accounts';
 import { AuditTrail } from './pages/AuditTrail';
 import { InventoryLedger } from './pages/InventoryLedger';
+import { Attendance } from './pages/Attendance';
 import { AppProvider } from './store/AppContext';
 import { AuthProvider, useAuth } from './store/AuthContext';
 
@@ -45,6 +46,7 @@ export default function App() {
             <Route path="payments" element={<Payments />} />
             <Route path="stock-ledger" element={<InventoryLedger />} />
             <Route path="accounts" element={<Accounts />} />
+            <Route path="attendance" element={<Attendance />} />
             <Route path="reports" element={<Reports />} />
             <Route path="audit" element={<AuditTrail />} />
             <Route path="settings" element={<Settings />} />

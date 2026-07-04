@@ -164,6 +164,49 @@ export interface AuditEntry {
   details: string;
 }
 
+export type StaffBranch = 'Head Office' | 'Site' | 'Store' | 'Admin';
+
+export interface Employee {
+  id: Id;
+  code: string;
+  name: string;
+  branch: StaffBranch;
+  department: string;
+  grossSalary: number;
+  salaryAdvance: number;
+  otherDeduction: number;
+  accountNumber?: string;
+  bankName?: string;
+  ifscCode?: string;
+  status: 'Active' | 'Inactive';
+  createdAt: string;
+}
+
+export interface DayAttendance {
+  present: boolean;
+  half: boolean;
+  woff: boolean;
+}
+
+export type MonthAttendance = Record<string, DayAttendance>;
+
+export interface SalaryAdvance {
+  id: Id;
+  employeeId: Id;
+  amount: number;
+  givenDate: string;
+  note?: string;
+  cleared: boolean;
+  createdAt: string;
+}
+
+export interface DeductionDecision {
+  deductAdvance: boolean;
+  deductOther: boolean;
+}
+
+export type DeductionDecisions = Record<string, DeductionDecision>;
+
 export interface AppSettings {
   companyName: string;
   gstin: string;
@@ -190,6 +233,10 @@ export interface AppData {
   vouchers: Voucher[];
   auditLog: AuditEntry[];
   settings: AppSettings;
+  employees: Employee[];
+  attendance: MonthAttendance;
+  salaryAdvances: SalaryAdvance[];
+  deductionDecisions: DeductionDecisions;
 }
 
 export interface InventoryRow extends Material {
