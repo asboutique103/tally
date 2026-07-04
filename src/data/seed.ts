@@ -53,6 +53,14 @@ export const seedData: AppData = {
     { id: 'acc-discount-allowed', code: '5300', name: 'Discount Allowed', category: 'Expense', group: 'Indirect Expenses', openingBalance: 0, createdAt: now },
   ],
   vouchers: [],
+  employees: [
+    { id: 'emp-1', code: 'EMP-001', name: 'Manoj Kumar', branch: 'Site', department: 'Site Engineering', grossSalary: 32000, salaryAdvance: 0, otherDeduction: 0, accountNumber: '', bankName: '', ifscCode: '', status: 'Active', createdAt: now },
+    { id: 'emp-2', code: 'EMP-002', name: 'Sathish Raja', branch: 'Site', department: 'Site Engineering', grossSalary: 30000, salaryAdvance: 0, otherDeduction: 0, accountNumber: '', bankName: '', ifscCode: '', status: 'Active', createdAt: now },
+    { id: 'emp-3', code: 'EMP-003', name: 'Store Admin', branch: 'Store', department: 'Stores', grossSalary: 22000, salaryAdvance: 0, otherDeduction: 0, accountNumber: '', bankName: '', ifscCode: '', status: 'Active', createdAt: now },
+  ],
+  attendance: {},
+  salaryAdvances: [],
+  deductionDecisions: {},
   auditLog: [
     { id: 'audit-1', timestamp: now, actor: 'System', action: 'Created', module: 'Company', documentNo: 'INIT', details: 'ConstructFlow enterprise accounting workspace initialized.' },
   ],
