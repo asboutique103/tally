@@ -7,6 +7,40 @@ export const currency = (value: number, code = 'INR') =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: code, maximumFractionDigits: 2 }).format(value || 0);
 export const number = (value: number, digits = 2) =>
   new Intl.NumberFormat('en-IN', { maximumFractionDigits: digits }).format(value || 0);
+
+const WORDS_BELOW_20 = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+const TENS_WORDS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+const wordsUnderThousand = (value: number): string => {
+  const parts: string[] = [];
+  if (value >= 100) {
+    parts.push(`${WORDS_BELOW_20[Math.floor(value / 100)]} Hundred`);
+    value %= 100;
+  }
+  if (value >= 20) {
+    parts.push(TENS_WORDS[Math.floor(value / 10)]);
+    value %= 10;
+  }
+  if (value > 0) parts.push(WORDS_BELOW_20[value]);
+  return parts.join(' ');
+};
+
+export const amountInIndianWords = (amount: number) => {
+  const safeAmount = Math.max(0, Math.round((amount || 0) * 100) / 100);
+  let rupees = Math.floor(safeAmount);
+  const paise = Math.round((safeAmount - rupees) * 100);
+  const parts: string[] = [];
+  const groups: Array<[number, string]> = [[10000000, 'Crore'], [100000, 'Lakh'], [1000, 'Thousand'], [1, '']];
+  for (const [divider, label] of groups) {
+    const groupValue = Math.floor(rupees / divider);
+    if (!groupValue) continue;
+    parts.push(`${wordsUnderThousand(groupValue)}${label ? ` ${label}` : ''}`);
+    rupees %= divider;
+  }
+  const rupeeWords = parts.length ? parts.join(' ') : 'Zero';
+  return paise ? `${rupeeWords} Rupees and ${wordsUnderThousand(paise)} Paise Only` : `${rupeeWords} Rupees Only`;
+};
+
 export const documentNo = (prefix: string, count: number) => `${prefix}-${String(count + 1).padStart(4, '0')}`;
 
 export const itemSubtotal = (item: TransactionItem) => item.quantity * item.rate;
@@ -201,7 +235,7 @@ export const downloadCsv = (filename: string, rows: Record<string, unknown>[]) =
 // ── Staff attendance & payroll ─────────────────────────────────────────────
 export const attendanceKey = (employeeId: string, year: number, month: number, day: number) => `${employeeId}_${year}_${month}_${day}`;
 
-export const defaultDayAttendance = (): DayAttendance => ({ present: false, half: false, woff: false });
+export const defaultDayAttendance = (): DayAttendance => ({ present: false, half: false, woff: false, absent: false });
 
 export const defaultDeductionDecision = (): DeductionDecision => ({ deductAdvance: false, deductOther: true });
 
@@ -214,22 +248,24 @@ export interface MonthAttendanceSummary {
   halfDays: number;
   weekOffs: number;
   absentDays: number;
+  workingDays: number;
   payableDays: number;
 }
 
 export const summarizeAttendance = (data: AppData, employeeId: string, year: number, month: number): MonthAttendanceSummary => {
   const total = daysInMonth(year, month);
-  let presentDays = 0, halfDays = 0, weekOffs = 0;
+  let presentDays = 0, halfDays = 0, weekOffs = 0, absentDays = 0;
   for (let day = 1; day <= total; day++) {
     const entry = data.attendance[attendanceKey(employeeId, year, month, day)];
     if (!entry) continue;
     if (entry.woff) weekOffs++;
     else if (entry.half) halfDays++;
     else if (entry.present) presentDays++;
+    else if (entry.absent) absentDays++;
   }
-  const absentDays = Math.max(0, total - presentDays - halfDays - weekOffs);
-  const payableDays = presentDays + halfDays * 0.5 + weekOffs;
-  return { presentDays, halfDays, weekOffs, absentDays, payableDays };
+  const workingDays = presentDays + halfDays + weekOffs + absentDays;
+  const payableDays = presentDays + halfDays * 0.5;
+  return { presentDays, halfDays, weekOffs, absentDays, workingDays, payableDays };
 };
 
 export interface EmployeeSalaryBreakdown {
