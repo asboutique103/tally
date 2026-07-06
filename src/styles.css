@@ -273,7 +273,7 @@ input:focus, select:focus, textarea:focus { border-color: #a6a7f8; box-shadow: 0
 .empty-state h3 { margin: 13px 0 5px; font-size: 15px; }
 .empty-state p { color: var(--muted); margin: 0 0 15px; font-size: 11px; }
 
-.report-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.report-tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
 .report-tabs button { min-height: 56px; display: flex; align-items: center; justify-content: center; gap: 9px; border: 1px solid var(--line); border-radius: 12px; background: white; color: var(--muted); font-size: 11px; font-weight: 800; }
 .report-tabs button.active { color: var(--primary); border-color: #c9cafd; background: var(--primary-soft); }
 .report-note { color: var(--muted); font-size: 10px; padding: 0 15px 10px; }
@@ -546,3 +546,49 @@ input:focus, select:focus, textarea:focus { border-color: #a6a7f8; box-shadow: 0
 .meal-day button.meal-on { background: var(--primary-soft); color: var(--primary); border-color: transparent; }
 .deduction-toggle { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--ink); white-space: nowrap; }
 .deduction-toggle input { width: 14px; height: 14px; }
+
+.day-absent { background: #ffe3e7; color: var(--red); border-color: #ffc4ce; }
+.day-leave { background: #fff4ce; color: #9a6700; border-color: #ffe08a; }
+.day-half { min-width: 32px; }
+
+/* VMV-style GST invoice print */
+.vmv-invoice { color: #111; background: #fff; font-family: Arial, Helvetica, sans-serif; padding: 6px; }
+.vmv-company-box { border: 1px solid #202020; text-align: center; padding: 14px 18px; margin-bottom: 10px; }
+.vmv-company-box h1 { margin: 0 0 8px; font-size: 24px; letter-spacing: .02em; }
+.vmv-company-box p { margin: 0 0 12px; font-size: 14px; font-weight: 700; line-height: 1.45; }
+.vmv-company-box div { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; font-size: 13px; }
+.vmv-title { border-top: 3px double #202020; text-align: center; font-size: 18px; font-weight: 800; padding: 7px 0 9px; }
+.vmv-party-grid { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #202020; border-bottom: 0; }
+.vmv-party-left, .vmv-party-right { min-height: 124px; padding: 8px 10px; border-bottom: 1px solid #202020; }
+.vmv-party-left { border-right: 1px solid #202020; }
+.vmv-party-left h3 { margin: 8px 0 6px; text-align: center; font-size: 15px; }
+.vmv-party-left p { margin: 0; font-size: 12px; line-height: 1.45; font-weight: 700; }
+.vmv-party-right { padding: 0; }
+.vmv-party-right p { margin: 0; min-height: 20px; display: grid; grid-template-columns: 190px 1fr; align-items: center; border-bottom: 1px solid #202020; font-size: 12px; }
+.vmv-party-right p:last-child { border-bottom: 0; }
+.vmv-party-right strong { padding-left: 8px; }
+.vmv-party-right span { font-weight: 700; }
+.vmv-state { grid-column: 1 / -1; min-height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 8px 12px; font-size: 12px; border-bottom: 1px solid #202020; }
+.vmv-state span { font-size: 12px; }
+.vmv-items { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.vmv-items th, .vmv-items td { border: 1px solid #202020; padding: 6px; text-align: center; font-size: 12px; vertical-align: middle; }
+.vmv-items th:nth-child(1), .vmv-items td:nth-child(1) { width: 55px; }
+.vmv-items th:nth-child(2), .vmv-items td:nth-child(2) { width: 36%; }
+.vmv-items th:nth-child(3), .vmv-items td:nth-child(3) { width: 105px; }
+.vmv-items th:nth-child(4), .vmv-items td:nth-child(4) { width: 100px; }
+.vmv-items th:nth-child(5), .vmv-items td:nth-child(5) { width: 115px; }
+.vmv-items td:nth-child(2) { font-weight: 700; }
+.vmv-items td:nth-child(2) span { display: block; font-weight: 600; margin-top: 3px; }
+.vmv-words { text-align: left !important; font-size: 13px !important; line-height: 1.45; }
+.vmv-grand { font-size: 14px !important; }
+.vmv-footer { display: grid; grid-template-columns: 1fr 320px; gap: 20px; padding: 24px 36px 10px; }
+.vmv-footer h3 { margin: 0 0 22px; font-size: 13px; }
+.vmv-footer p { margin: 0 0 5px; font-size: 12px; font-weight: 700; }
+.vmv-sign { min-height: 145px; display: flex; flex-direction: column; justify-content: space-between; align-items: center; padding-top: 72px; font-size: 12px; }
+.vmv-sign span { font-weight: 800; }
+
+@media print {
+  .vmv-invoice { padding: 0; }
+  .vmv-company-box h1 { font-size: 25px; }
+  .vmv-company-box p { font-size: 15px; }
+}

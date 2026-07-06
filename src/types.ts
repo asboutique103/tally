@@ -41,6 +41,7 @@ export interface Material {
   code: string;
   name: string;
   category: string;
+  hsnCode?: string;
   unit: Unit;
   standardRate: number;
   taxRate: number;
@@ -98,6 +99,12 @@ export interface Bill {
   supplierId?: Id;
   siteId?: Id;
   partyName: string;
+  partyAddress?: string;
+  partyGstin?: string;
+  state?: string;
+  deliveryAddress?: string;
+  ewayBillNo?: string;
+  vehicleNo?: string;
   referenceNo: string;
   items: TransactionItem[];
   discount: number;
@@ -186,6 +193,7 @@ export interface DayAttendance {
   present: boolean;
   half: boolean;
   woff: boolean;
+  absent?: boolean;
 }
 
 export type MonthAttendance = Record<string, DayAttendance>;
@@ -210,9 +218,14 @@ export type DeductionDecisions = Record<string, DeductionDecision>;
 export interface AppSettings {
   companyName: string;
   gstin: string;
+  panNo?: string;
   phone: string;
   email: string;
   address: string;
+  bankName?: string;
+  bankBranch?: string;
+  bankAccountNo?: string;
+  bankIfsc?: string;
   currency: string;
   defaultTaxRate: number;
   lowStockAlerts: boolean;
