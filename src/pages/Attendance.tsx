@@ -27,13 +27,14 @@ const currentYM = () => { const now = new Date(); return { year: now.getFullYear
 
 function dayState(entry?: DayAttendance) {
   if (!entry) return 'blank';
-  if (entry.woff) return 'woff';
+  if (entry.woff) return 'leave';
   if (entry.half) return 'half';
   if (entry.present) return 'present';
+  if (entry.absent) return 'absent';
   return 'blank';
 }
 
-const DAY_LABEL: Record<string, string> = { blank: '', present: 'P', half: 'H', woff: 'W' };
+const DAY_LABEL: Record<string, string> = { blank: '', present: 'P', absent: 'A', half: 'HD', leave: 'L' };
 
 export function Attendance() {
   const app = useApp();
@@ -45,7 +46,8 @@ export function Attendance() {
   const [draft, setDraft] = useState<Employee>(emptyEmployee());
   const [advanceModal, setAdvanceModal] = useState<Employee | null>(null);
   const [advanceAmount, setAdvanceAmount] = useState(0);
-  const [advanceNote, setAdvanceNote] = useState('');
+  const [advanceDate, setAdvanceDate] = useState(new Date().toISOString().slice(0, 10));
+  const [advanceReason, setAdvanceReason] = useState('');
 
   const total = daysInMonth(year, month);
   const label = monthLabel(year, month);
@@ -59,12 +61,12 @@ export function Attendance() {
 
   const cycleDay = (emp: Employee, day: number) => {
     const key = attendanceKey(emp.id, year, month, day);
-    const current = data.attendance[key] ?? defaultDayAttendance();
-    const state = dayState(current);
+    const state = dayState(data.attendance[key]);
     let next: DayAttendance;
-    if (state === 'blank') next = { present: true, half: false, woff: false };
-    else if (state === 'present') next = { present: false, half: true, woff: false };
-    else if (state === 'half') next = { present: false, half: false, woff: true };
+    if (state === 'blank') next = { present: true, absent: false, half: false, woff: false };
+    else if (state === 'present') next = { present: false, absent: true, half: false, woff: false };
+    else if (state === 'absent') next = { present: false, absent: false, half: true, woff: false };
+    else if (state === 'half') next = { present: false, absent: false, half: false, woff: true };
     else next = defaultDayAttendance();
     app.setAttendanceDay(emp.id, year, month, day, next);
   };
@@ -90,19 +92,59 @@ export function Attendance() {
 
   const submitAdvance = (event: FormEvent) => {
     event.preventDefault();
-    if (!advanceModal || advanceAmount <= 0) return;
-    app.addSalaryAdvance({ id: uid('adv'), employeeId: advanceModal.id, amount: advanceAmount, givenDate: new Date().toISOString().slice(0, 10), note: advanceNote, cleared: false, createdAt: new Date().toISOString() });
-    setAdvanceModal(null); setAdvanceAmount(0); setAdvanceNote('');
+    if (!advanceModal || advanceAmount <= 0 || !advanceDate) return;
+    app.addSalaryAdvance({ id: uid('adv'), employeeId: advanceModal.id, amount: advanceAmount, givenDate: advanceDate, note: advanceReason, cleared: false, createdAt: new Date().toISOString() });
+    setAdvanceModal(null); setAdvanceAmount(0); setAdvanceDate(new Date().toISOString().slice(0, 10)); setAdvanceReason('');
   };
 
-  const exportAttendance = () => downloadCsv(`attendance-${year}-${month}.csv`, filtered.map((e) => {
-    const s = summarizeAttendance(data, e.id, year, month);
-    return { Code: e.code, Name: e.name, Department: e.department, Present: s.presentDays, Half: s.halfDays, WeekOff: s.weekOffs, Absent: s.absentDays };
+  const exportAttendance = () => {
+    if (!filtered.length) return;
+    const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char] ?? char));
+    const dayColumns = Array.from({ length: total }, (_, index) => index + 1);
+    const dayNames = dayColumns.map((day) => new Date(year, month - 1, day).toLocaleString('en-IN', { weekday: 'short' }));
+    const rows = filtered.map((employee, index) => {
+      const summary = summarizeAttendance(data, employee.id, year, month);
+      const breakdown = calcEmployeeSalary(data, employee, year, month, getDecision(employee.id));
+      const advanceList = data.salaryAdvances
+        .filter((advance) => advance.employeeId === employee.id && advance.givenDate.startsWith(`${year}-${String(month).padStart(2, '0')}`))
+        .sort((a, b) => a.givenDate.localeCompare(b.givenDate));
+      const advanceAmount = advanceList.reduce((sum, advance) => sum + advance.amount, 0);
+      const advanceDetails = advanceList.map((advance) => `${advance.givenDate}: ₹${number(advance.amount)}${advance.note ? ` - ${advance.note}` : ''}`).join('<br/>');
+      return { employee, index, summary, breakdown, advanceAmount, advanceDetails };
+    });
+    const headerCells = dayColumns.map((day, index) => `<th class="${new Date(year, month - 1, day).getDay() === 0 ? 'sun' : ''}">${escapeHtml(dayNames[index])}<br/>${day}</th>`).join('');
+    const bodyRows = rows.map(({ employee, index, summary, breakdown, advanceAmount, advanceDetails }) => {
+      const attendanceCells = dayColumns.map((day) => {
+        const state = dayState(data.attendance[attendanceKey(employee.id, year, month, day)]);
+        return `<td class="mark ${state}">${escapeHtml(DAY_LABEL[state])}</td>`;
+      }).join('');
+      return `<tr><td>${index + 1}</td><td class="name">${escapeHtml(employee.name)}</td>${attendanceCells}<td>${summary.presentDays}</td><td>${summary.weekOffs}</td><td>${summary.halfDays}</td><td>${number(summary.workingDays, 1)}</td><td>${number(summary.payableDays, 1)}</td><td>${number(breakdown.perDay)}</td><td>${number(advanceAmount)}</td><td>${number(Math.max(0, breakdown.earned - advanceAmount))}</td><td class="reason">${advanceDetails || '—'}</td></tr>`;
+    }).join('');
+    const html = `<!doctype html><html><head><meta charset="utf-8"/><style>
+      table{border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;font-size:11px}td,th{border:1px solid #333;padding:4px;text-align:center;vertical-align:middle}.title{font-size:16px;font-weight:700;color:#c00000}.address{font-size:12px;color:#1f4e79}.meta{font-weight:700;text-align:left}.name{text-align:left;font-weight:700;min-width:160px}.sun{background:#ff0000;color:#fff}.mark.present{color:#111}.mark.absent{background:#ff1a1a;color:#111}.mark.half{background:#fff2cc}.mark.leave{background:#ffe699}.reason{min-width:200px;text-align:left}.summary{background:#a9d18e;font-weight:700}.empty{border:none}
+    </style></head><body><table><tr><td colspan="${total + 11}" class="title">${escapeHtml(data.settings.companyName)}</td></tr><tr><td colspan="${total + 11}" class="address">${escapeHtml(data.settings.address)}</td></tr><tr><td class="meta">Year</td><td class="meta">${year}</td><td colspan="${total + 9}" class="empty"></td></tr><tr><td class="meta">Month</td><td class="meta">${escapeHtml(label.split(' ')[0])}</td><td colspan="${total + 9}" class="empty"></td></tr><tr><th>S.No</th><th>Employee Name</th>${headerCells}<th class="summary">P</th><th class="summary">L</th><th class="summary">HD</th><th class="summary">Working Days</th><th class="summary">Days Payable</th><th class="summary">Per Day</th><th class="summary">Advance</th><th class="summary">Total</th><th class="summary">Advance Date / Reason</th></tr>${bodyRows}</table></body></html>`;
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `attendance-register-${year}-${String(month).padStart(2, '0')}.xls`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportSalary = () => downloadCsv(`salary-${year}-${month}.csv`, salaryRows.map(({ employee: e, breakdown: b, attendance }) => {
+    const advances = data.salaryAdvances.filter((advance) => advance.employeeId === e.id && advance.givenDate.startsWith(`${year}-${String(month).padStart(2, '0')}`));
+    return {
+      Code: e.code, Name: e.name, Gross: e.grossSalary, WorkingDays: attendance.workingDays, PayableDays: attendance.payableDays,
+      PerDay: b.perDay, Earned: b.earned, AdvanceDeducted: b.advanceDeduction, Other: b.otherDeduction, Net: b.net,
+      AdvanceDates: advances.map((advance) => advance.givenDate).join(', '), AdvanceReasons: advances.map((advance) => advance.note ?? '').filter(Boolean).join(' | '),
+    };
   }));
 
-  const exportSalary = () => downloadCsv(`salary-${year}-${month}.csv`, salaryRows.map(({ employee: e, breakdown: b }) => ({
-    Code: e.code, Name: e.name, Gross: e.grossSalary, Earned: b.earned, Advance: b.advanceDeduction, Other: b.otherDeduction, Net: b.net,
-  })));
+  const exportAdvances = () => downloadCsv(`salary-advances-${year}-${month}.csv`, data.salaryAdvances.map((advance) => {
+    const employee = data.employees.find((candidate) => candidate.id === advance.employeeId);
+    return { EmployeeCode: employee?.code ?? '', EmployeeName: employee?.name ?? 'Unknown', Amount: advance.amount, GivenDate: advance.givenDate, Reason: advance.note ?? '', Status: advance.cleared ? 'Cleared' : 'Outstanding' };
+  }));
 
   const monthOptions = [0, -1, -2].map((offset) => { const d = new Date(year, month - 1 + offset, 1); return { year: d.getFullYear(), month: d.getMonth() + 1 }; });
 
@@ -112,7 +154,7 @@ export function Attendance() {
   const mixChart = [
     { name: 'Present', value: mix.present },
     { name: 'Half day', value: mix.half },
-    { name: 'Week off', value: mix.weekOff },
+    { name: 'Leave', value: mix.weekOff },
     { name: 'Absent', value: mix.absent },
   ];
 
@@ -145,17 +187,18 @@ export function Attendance() {
         ))}
       </div>
 
-      {(tab === 'Attendance' || tab === 'Salary' || tab === 'Employees') && (
+      {(tab === 'Attendance' || tab === 'Salary' || tab === 'Advances' || tab === 'Employees') && (
         <div className="table-toolbar panel">
           <SearchBar value={query} onChange={setQuery} placeholder="Search name, code or department..." />
-          {tab === 'Attendance' && <button className="button secondary" onClick={exportAttendance}><Download size={17} /> Export</button>}
-          {tab === 'Salary' && <button className="button secondary" onClick={exportSalary}><Download size={17} /> Export</button>}
+          {tab === 'Attendance' && <button className="button secondary" onClick={exportAttendance}><Download size={17} /> Export register</button>}
+          {tab === 'Salary' && <button className="button secondary" onClick={exportSalary}><Download size={17} /> Export salary</button>}
+          {tab === 'Advances' && <button className="button secondary" onClick={exportAdvances}><Download size={17} /> Export advances</button>}
         </div>
       )}
 
       {tab === 'Attendance' && (
         <section className="panel table-panel">
-          <div className="panel-header"><div><h2>Daily attendance — {label}</h2><span className="eyebrow">Tap a day to cycle Present → Half day → Week off → Blank</span></div></div>
+          <div className="panel-header"><div><h2>Daily attendance — {label}</h2><span className="eyebrow">Tap a day to cycle Present → Absent → Half day → Leave → Blank</span></div></div>
           {filtered.length === 0 ? <EmptyState title="No employees found" description="Add staff to start recording attendance." action={<button className="button primary" onClick={openCreate}><UserPlus size={17} /> Add employee</button>} /> : (
             <div className="table-scroll">
               <table className="data-table attendance-table">
@@ -199,7 +242,7 @@ export function Attendance() {
           {salaryRows.length === 0 ? <EmptyState title="No employees found" description="Add staff to compute payroll." /> : (
             <div className="table-scroll">
               <table className="data-table">
-                <thead><tr><th>Employee</th><th>Gross</th><th>Payable days</th><th>Earned</th><th>Advance</th><th>Other</th><th>Net payable</th><th>Deductions</th></tr></thead>
+                <thead><tr><th>Employee</th><th>Gross</th><th>Working days</th><th>Payable days</th><th>Earned</th><th>Advance</th><th>Other</th><th>Net payable</th><th>Deductions</th></tr></thead>
                 <tbody>
                   {salaryRows.map(({ employee: e, breakdown: b, attendance }) => {
                     const decision = getDecision(e.id);
@@ -207,6 +250,7 @@ export function Attendance() {
                       <tr key={e.id}>
                         <td><strong>{e.name}</strong><span>{e.code} · {e.branch}</span></td>
                         <td>{currency(e.grossSalary)}</td>
+                        <td>{number(attendance.workingDays, 1)}</td>
                         <td>{number(attendance.payableDays, 1)}</td>
                         <td><strong>{currency(b.earned)}</strong></td>
                         <td>
@@ -222,7 +266,7 @@ export function Attendance() {
                   })}
                 </tbody>
                 <tfoot>
-                  <tr><td colSpan={6}>Total</td><td><strong>{currency(salarySummary.net)}</strong></td><td>{currency(salarySummary.deductions)}</td></tr>
+                  <tr><td colSpan={7}>Total</td><td><strong>{currency(salarySummary.net)}</strong></td><td>{currency(salarySummary.deductions)}</td></tr>
                 </tfoot>
               </table>
             </div>
@@ -238,7 +282,7 @@ export function Attendance() {
           {data.employees.length === 0 ? <EmptyState title="No employees found" description="Add staff first to record an advance." /> : (
             <div className="table-scroll">
               <table className="data-table">
-                <thead><tr><th>Employee</th><th>Amount</th><th>Given on</th><th>Note</th><th>Status</th><th /></tr></thead>
+                <thead><tr><th>Employee</th><th>Amount</th><th>Advance date</th><th>Reason</th><th>Status</th><th /></tr></thead>
                 <tbody>
                   {data.salaryAdvances.length === 0 && <tr><td colSpan={6}><EmptyState title="No advances recorded" description="Use the button below to record a salary advance." /></td></tr>}
                   {data.salaryAdvances.map((advance) => {
@@ -397,11 +441,12 @@ export function Attendance() {
         </form>
       </Modal>
 
-      <Modal open={!!advanceModal} title={`Record advance — ${advanceModal?.name ?? ''}`} subtitle="This will be marked outstanding until cleared." onClose={() => setAdvanceModal(null)}>
+      <Modal open={!!advanceModal} title={`Record advance — ${advanceModal?.name ?? ''}`} subtitle="Capture advance amount, taken date and reason. It remains outstanding until cleared." onClose={() => setAdvanceModal(null)}>
         <form onSubmit={submitAdvance} className="form-stack">
           <div className="form-grid two">
             <label><span>Amount *</span><input type="number" min="1" required value={advanceAmount || ''} onChange={(e) => setAdvanceAmount(Number(e.target.value))} /></label>
-            <label><span>Note</span><input value={advanceNote} onChange={(e) => setAdvanceNote(e.target.value)} placeholder="Reason (optional)" /></label>
+            <label><span>Advance taken date *</span><input type="date" required value={advanceDate} onChange={(e) => setAdvanceDate(e.target.value)} /></label>
+            <label className="span-2"><span>Reason</span><input value={advanceReason} onChange={(e) => setAdvanceReason(e.target.value)} placeholder="Reason / purpose for advance" /></label>
           </div>
           <div className="form-actions"><button type="button" className="button secondary" onClick={() => setAdvanceModal(null)}>Cancel</button><button className="button primary"><Plus size={16} /> Record advance</button></div>
         </form>
