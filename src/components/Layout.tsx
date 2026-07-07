@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { isSupabaseConfigured } from '../lib/supabase';
 import { useApp } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
 
@@ -59,7 +60,7 @@ export function Layout() {
       <aside className={`sidebar ${mobileOpen ? 'open' : ''} ${collapsed ? 'collapsed' : ''}`}>
         <div className="brand-row">
           <div className="brand-mark"><Building2 size={23} /></div>
-          <div><strong>VMV Construction</strong><span>Ledger & Materials</span></div>
+          <div><strong>ConstructFlow</strong><span>Ledger & Materials</span></div>
         </div>
         <nav className="nav-list">
           <span className="nav-label">Workspace</span>
@@ -87,7 +88,7 @@ export function Layout() {
             {collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
           </button>
           <div className="health-dot" />
-          <div><strong>Enterprise local mode</strong><span>Accounting + stock integrated</span></div>
+          <div><strong>{isSupabaseConfigured ? 'Supabase cloud mode' : 'Enterprise local mode'}</strong><span>{isSupabaseConfigured ? 'Cloud data sync enabled' : 'Accounting + stock integrated'}</span></div>
         </div>
       </aside>
 
@@ -97,12 +98,12 @@ export function Layout() {
         <header className="topbar">
           <div className="topbar-left">
             <button className="icon-button menu-button" onClick={() => setMobileOpen(true)}><Menu size={21} /></button>
-            <div className="company-chip"><CircleDollarSign size={17} /><span>{data.settings.companyName}</span></div>
+            <div className="company-chip"><CircleDollarSign size={17} /><span>{data.settings.companyName || 'Company not set'}</span></div>
           </div>
           <div className="topbar-right">
             <div className="notification-pill"><Package size={16} /><span>{data.materials.length} materials</span></div>
             <button className="profile-button">
-              <span className="avatar">AR</span>
+              <span className="avatar">AD</span>
               <span className="profile-copy"><strong>Admin</strong><small>Owner access</small></span>
               <ChevronDown size={16} />
             </button>
