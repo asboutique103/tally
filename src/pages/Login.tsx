@@ -2,7 +2,6 @@ import { useState, type FormEvent } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Building2, Lock, User } from 'lucide-react';
 import { useAuth } from '../store/AuthContext';
-import { isSupabaseConfigured } from '../lib/supabase';
 
 export function Login() {
   const { isAuthenticated, login } = useAuth();
@@ -37,18 +36,18 @@ export function Login() {
         </div>
 
         <h1>Sign in</h1>
-        <p className="login-subtitle">{isSupabaseConfigured ? 'Use your Supabase Auth email and password to access the cloud workspace.' : 'Enter your local fallback credentials to access the workspace.'}</p>
+        <p className="login-subtitle">Use your workspace username and password. Credentials and workspace data are verified through Supabase.</p>
 
         <form onSubmit={handleSubmit} className="login-form">
           <label className="login-field">
-            <span>{isSupabaseConfigured ? 'Email' : 'Username'}</span>
+            <span>Username</span>
             <div className="login-input">
               <User size={18} />
               <input
                 type="text"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
-                placeholder={isSupabaseConfigured ? 'owner@company.com' : 'Admin'}
+                placeholder="Admin"
                 autoFocus
                 autoComplete="username"
               />
