@@ -1,9 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { isSupabaseConfigured, supabase } from '../lib/supabase';
 
-const AUTH_KEY = 'constructflow-auth';
-const LOCAL_USERNAME = 'Admin';
-const LOCAL_PASSWORD = 'Admin1234';
+const AUTH_KEY = 'constructflow-auth-v3';
 
 interface AuthContextValue {
   isAuthenticated: boolean;
@@ -12,63 +10,53 @@ interface AuthContextValue {
   logout: () => void;
 }
 
+interface LoginResult {
+  ok: boolean;
+  username: string | null;
+  role: string | null;
+}
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(
-    () => !isSupabaseConfigured && sessionStorage.getItem(AUTH_KEY) === 'true',
+    () => Boolean(sessionStorage.getItem(AUTH_KEY)),
   );
-  const [loading, setLoading] = useState(isSupabaseConfigured);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) {
-      setLoading(false);
-      return;
-    }
-
-    let mounted = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setIsAuthenticated(Boolean(data.session));
-      setLoading(false);
-    });
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setIsAuthenticated(Boolean(session));
-      setLoading(false);
-    });
-
-    return () => {
-      mounted = false;
-      listener.subscription.unsubscribe();
-    };
+    setLoading(false);
   }, []);
 
   const login = async (username: string, password: string): Promise<{ ok: boolean; error?: string }> => {
-    if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: username,
-        password,
-      });
+    if (!isSupabaseConfigured || !supabase) {
+      return { ok: false, error: 'Supabase login is not configured.' };
+    }
 
-      if (error) return { ok: false, error: error.message };
+    const { data, error } = await supabase.rpc('login_app_user', {
+      p_username: username,
+      p_password: password,
+    });
+
+    if (error) {
+      console.error('Unable to verify app login', error.message);
+      return { ok: false, error: 'Login setup is incomplete. Run the latest Supabase SQL.' };
+    }
+
+    const result = (Array.isArray(data) ? data[0] : data) as LoginResult | undefined;
+    if (result?.ok) {
+      sessionStorage.setItem(AUTH_KEY, JSON.stringify({
+        username: result.username ?? username,
+        role: result.role ?? 'Admin',
+      }));
       setIsAuthenticated(true);
       return { ok: true };
     }
 
-    const ok = username === LOCAL_USERNAME && password === LOCAL_PASSWORD;
-    if (ok) {
-      sessionStorage.setItem(AUTH_KEY, 'true');
-      setIsAuthenticated(true);
-      return { ok: true };
-    }
     return { ok: false, error: 'Invalid username or password.' };
   };
 
   const logout = () => {
-    if (isSupabaseConfigured && supabase) {
-      void supabase.auth.signOut();
-    }
     sessionStorage.removeItem(AUTH_KEY);
     setIsAuthenticated(false);
   };
