@@ -1,4 +1,4 @@
-# Supabase Setup — ConstructFlow Enterprise v2.0
+# Supabase Setup - ConstructFlow Enterprise v2.0
 
 ## 1. Create the project
 
@@ -6,12 +6,12 @@ Create a Supabase project and keep the database password secure.
 
 ## 2. Run the SQL
 
-Open **SQL Editor** and run the following files in this exact order:
+Open **SQL Editor** and run:
 
-1. `supabase/migrations/20260703_000001_constructflow_schema.sql`
-2. `supabase/migrations/20260703_000002_enterprise_accounting.sql`
+1. `SUPABASE_FULL_SCHEMA_V2.sql`
+2. `SUPABASE_APP_STATE.sql` only if your database existed before this app-state sync update
 
-For a brand-new database, the combined `ConstructFlow-Supabase-Full-Schema-v2.sql` file may also be run once instead.
+For a brand-new database, `SUPABASE_FULL_SCHEMA_V2.sql` already includes the app-state table. For an existing database, run `SUPABASE_APP_STATE.sql` once.
 
 The SQL creates:
 
@@ -24,10 +24,11 @@ The SQL creates:
 - Bill balance, inventory and trial-balance views
 - Row Level Security policies
 - Audit logs and private document storage
+- `app_state` cloud persistence for the browser app workspace
 
 ## 3. Create the first user
 
-Go to **Authentication → Users** and create the owner user, or enable an authentication provider and sign up through the application after cloud login is connected.
+Go to **Authentication -> Users** and create the owner user. The browser app uses Supabase Auth email/password when `VITE_USE_SUPABASE=true`.
 
 ## 4. Create the organization
 
@@ -53,7 +54,7 @@ join public.organizations o on o.id = om.organization_id;
 
 ## 5. Add users and roles
 
-Create each person in **Authentication → Users**, copy the user UUID, then run:
+Create each person in **Authentication -> Users**, copy the user UUID, then run:
 
 ```sql
 insert into public.organization_members (
@@ -82,11 +83,19 @@ Supported roles:
 Copy `.env.example` to `.env` and enter:
 
 ```env
+VITE_USE_SUPABASE=true
 VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 VITE_SUPABASE_ANON_KEY=YOUR_ANON_PUBLIC_KEY
 ```
 
 Use only the anon public key in the frontend. Never expose the service-role key.
+
+When Supabase mode is enabled:
+
+- Sign in with the Supabase Auth email and password you created.
+- The app loads from `public.app_state` after sign-in.
+- Every supplier, site, material, receipt, issue, bill, payment, setting, attendance entry and audit entry is saved back to Supabase as JSON workspace state.
+- Browser local storage is only used as a fallback/cache when Supabase is unavailable.
 
 ## 7. Invoice and stock behavior
 
@@ -111,16 +120,18 @@ Perform these tests with a temporary organization:
 3. Create an auto-post client invoice and verify stock decreases.
 4. Try invoicing more than available stock and confirm it is blocked.
 5. Record a payment and verify the bill status and voucher.
-6. Run:
+6. Confirm the browser app creates/updates one row in `public.app_state`.
+7. Run:
 
 ```sql
 select * from public.inventory_summary;
 select * from public.bill_balances;
 select * from public.trial_balance;
 select * from public.vouchers order by voucher_date desc;
+select owner_id, workspace_key, updated_at from public.app_state;
 ```
 
-7. Confirm debits equal credits:
+8. Confirm debits equal credits:
 
 ```sql
 select
@@ -133,7 +144,7 @@ group by v.id, v.voucher_no
 having abs(sum(vl.debit) - sum(vl.credit)) > 0.01;
 ```
 
-The final query must return no rows.
+The final debit/credit query must return no rows.
 
 ## 9. Production requirements not solved by SQL alone
 

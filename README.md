@@ -23,7 +23,7 @@ Construction ERP combining materials, stock, supplier billing, client invoicing,
 - GST/tax summary
 - Audit trail for creation, updates and deletions
 - Responsive desktop, tablet and mobile UI
-- Browser-local demo mode and Supabase-ready schema
+- Blank local workspace mode and Supabase-ready schema
 
 ## Run locally
 
@@ -42,12 +42,12 @@ npm run preview
 
 ## Supabase
 
-For a new database, run these files in order:
+For a new database, run:
 
-1. `supabase/migrations/20260703_000001_constructflow_schema.sql`
-2. `supabase/migrations/20260703_000002_enterprise_accounting.sql`
+1. `SUPABASE_FULL_SCHEMA_V2.sql`
+2. `SUPABASE_APP_STATE.sql` only if your database was created before the app-state persistence update
 
-The second migration adds integrated stock posting, double-entry accounts, automatic vouchers, stricter stock guards and financial reporting views.
+Set `VITE_USE_SUPABASE=true`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_ANON_KEY` in your environment. In Supabase mode, login uses Supabase Auth and the full browser workspace is saved to the `public.app_state` table with RLS enabled.
 
 ## Important accounting behavior
 

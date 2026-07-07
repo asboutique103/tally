@@ -222,6 +222,16 @@ create table public.audit_logs (
   performed_at timestamptz not null default now()
 );
 
+create table if not exists public.app_state (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  workspace_key text not null default 'default',
+  data jsonb not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (owner_id, workspace_key)
+);
+
 create index suppliers_org_name_idx on public.suppliers (organization_id, name);
 create index sites_org_status_idx on public.sites (organization_id, status);
 create index materials_org_category_idx on public.materials (organization_id, category);
@@ -440,6 +450,7 @@ alter table public.bills enable row level security;
 alter table public.bill_items enable row level security;
 alter table public.payments enable row level security;
 alter table public.audit_logs enable row level security;
+alter table public.app_state enable row level security;
 
 create policy profiles_self_select on public.profiles for select using (id = auth.uid());
 create policy profiles_self_update on public.profiles for update using (id = auth.uid()) with check (id = auth.uid());
@@ -478,6 +489,13 @@ create policy payments_member_select on public.payments for select using (public
 create policy payments_accounts_write on public.payments for all using (public.has_org_role(organization_id, array['owner','admin','accountant']::public.app_role[])) with check (public.has_org_role(organization_id, array['owner','admin','accountant']::public.app_role[]));
 
 create policy audit_admin_select on public.audit_logs for select using (organization_id is not null and public.has_org_role(organization_id, array['owner','admin']::public.app_role[]));
+
+create policy app_state_owner_select on public.app_state for select to authenticated using ((select auth.uid()) = owner_id);
+create policy app_state_owner_insert on public.app_state for insert to authenticated with check ((select auth.uid()) = owner_id);
+create policy app_state_owner_update on public.app_state for update to authenticated using ((select auth.uid()) = owner_id) with check ((select auth.uid()) = owner_id);
+create policy app_state_owner_delete on public.app_state for delete to authenticated using ((select auth.uid()) = owner_id);
+
+grant select, insert, update, delete on public.app_state to authenticated;
 
 -- Optional private bucket for receipt, bill and payment attachments.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
