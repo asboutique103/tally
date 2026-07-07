@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Building2, Lock, User } from 'lucide-react';
 import { useAuth } from '../store/AuthContext';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 export function Login() {
   const { isAuthenticated, login } = useAuth();
@@ -15,11 +16,12 @@ export function Login() {
     return <Navigate to={redirectTo} replace />;
   }
 
-  const handleSubmit = (event: FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    const ok = login(username.trim(), password);
-    if (!ok) {
-      setError('Invalid username or password.');
+    setError('');
+    const result = await login(username.trim(), password);
+    if (!result.ok) {
+      setError(result.error ?? 'Invalid username or password.');
     }
   };
 
@@ -35,18 +37,18 @@ export function Login() {
         </div>
 
         <h1>Sign in</h1>
-        <p className="login-subtitle">Enter your credentials to access the workspace.</p>
+        <p className="login-subtitle">{isSupabaseConfigured ? 'Use your Supabase Auth email and password to access the cloud workspace.' : 'Enter your local fallback credentials to access the workspace.'}</p>
 
         <form onSubmit={handleSubmit} className="login-form">
           <label className="login-field">
-            <span>Username</span>
+            <span>{isSupabaseConfigured ? 'Email' : 'Username'}</span>
             <div className="login-input">
               <User size={18} />
               <input
                 type="text"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
-                placeholder="Admin"
+                placeholder={isSupabaseConfigured ? 'owner@company.com' : 'Admin'}
                 autoFocus
                 autoComplete="username"
               />
@@ -61,7 +63,7 @@ export function Login() {
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                placeholder="••••••••"
+                placeholder="Password"
                 autoComplete="current-password"
               />
             </div>

@@ -8,6 +8,7 @@ import {
   amountInIndianWords, billBalance, billTotal, currency, documentNo, downloadCsv, inventoryRows,
   itemsSubtotal, itemsTax, today, uid,
 } from '../lib/helpers';
+import { cleanText, hasDuplicate, hasValidItems, isFilled, isSameOrAfter, isValidGstin } from '../lib/validation';
 import { useApp } from '../store/AppContext';
 import type { Bill, BillType } from '../types';
 
@@ -52,6 +53,7 @@ export function Bills() {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<Bill | null>(null);
   const [draft, setDraft] = useState<Bill>(empty());
+  const [error, setError] = useState('');
 
   const filtered = useMemo(
     () => data.bills.filter((bill) => (filter === 'All' || bill.type === filter) && `${bill.billNo} ${bill.partyName} ${bill.referenceNo} ${bill.status}`.toLowerCase().includes(query.toLowerCase())),
@@ -60,22 +62,81 @@ export function Bills() {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (draft.inventoryPosting === 'Auto Post' && draft.type === 'Client') {
+    const next: Bill = {
+      ...draft,
+      billNo: cleanText(draft.billNo).toUpperCase(),
+      partyName: cleanText(draft.partyName),
+      partyAddress: cleanText(draft.partyAddress),
+      partyGstin: cleanText(draft.partyGstin).toUpperCase(),
+      state: cleanText(draft.state).toUpperCase(),
+      deliveryAddress: cleanText(draft.deliveryAddress),
+      ewayBillNo: cleanText(draft.ewayBillNo).toUpperCase(),
+      vehicleNo: cleanText(draft.vehicleNo).toUpperCase(),
+      referenceNo: cleanText(draft.referenceNo).toUpperCase(),
+      notes: cleanText(draft.notes),
+      discount: draft.discount || 0,
+      otherCharges: draft.otherCharges || 0,
+    };
+
+    if (!isFilled(next.billNo) || !isFilled(next.date) || !isFilled(next.dueDate) || !isFilled(next.referenceNo) || !isFilled(next.partyName) || !isFilled(next.partyAddress) || !isFilled(next.state)) {
+      setError('Bill number, dates, reference / PO, party name, party address and state are mandatory.');
+      return;
+    }
+    if (next.type === 'Purchase' && !isFilled(next.supplierId)) {
+      setError('Select a supplier for a purchase bill.');
+      return;
+    }
+    if (next.type === 'Client' && !isFilled(next.siteId)) {
+      setError('Select the project / client for a client invoice.');
+      return;
+    }
+    if (next.type === 'Client' && !isFilled(next.deliveryAddress)) {
+      setError('Delivery address is mandatory for client invoices.');
+      return;
+    }
+    if (!isSameOrAfter(next.dueDate, next.date)) {
+      setError('Due date cannot be before the invoice date.');
+      return;
+    }
+    const partyGstin = next.partyGstin ?? '';
+    if (!isFilled(partyGstin) || !isValidGstin(partyGstin, true)) {
+      setError('Enter a valid party GSTIN, or use URP for an unregistered party.');
+      return;
+    }
+    if (!hasValidItems(next.items)) {
+      setError('Add at least one material line with material, quantity, rate and tax.');
+      return;
+    }
+    if (next.items.some((item) => !data.materials.find((material) => material.id === item.materialId)?.hsnCode)) {
+      setError('Every billed material must have an HSN code in the material master.');
+      return;
+    }
+    if (next.discount > itemsSubtotal(next.items) + next.otherCharges) {
+      setError('Discount cannot be greater than subtotal plus other charges.');
+      return;
+    }
+    if (hasDuplicate(data.bills, next.id, (bill) => bill.billNo.toUpperCase() === next.billNo)) {
+      setError('Another bill or invoice already uses this number.');
+      return;
+    }
+    if (next.inventoryPosting === 'Auto Post' && next.type === 'Client') {
       const stock = inventoryRows(data);
-      const shortage = draft.items.find((item) => item.quantity > (stock.find((row) => row.id === item.materialId)?.availableQty ?? 0));
+      const shortage = next.items.find((item) => item.quantity > (stock.find((row) => row.id === item.materialId)?.availableQty ?? 0));
       if (shortage && data.settings.strictStockControl) {
         const material = data.materials.find((item) => item.id === shortage.materialId);
-        alert(`Insufficient stock for ${material?.name ?? 'material'}. Available: ${stock.find((row) => row.id === shortage.materialId)?.availableQty ?? 0}`);
+        setError(`Insufficient stock for ${material?.name ?? 'material'}. Available: ${stock.find((row) => row.id === shortage.materialId)?.availableQty ?? 0} ${material?.unit ?? ''}.`);
         return;
       }
     }
-    addBill(draft);
+    addBill(next);
     setOpen(false);
+    setError('');
   };
 
   const changeType = (type: BillType) => {
     const supplier = data.suppliers[0];
     const site = data.sites[0];
+    setError('');
     setDraft({
       ...draft,
       type,
@@ -116,7 +177,7 @@ export function Bills() {
               Balance: billBalance(data, bill),
               Status: bill.status,
             })))}><Download size={17} /> Export</button>
-            <button className="button primary" onClick={() => { setDraft(empty('Client')); setOpen(true); }}><Plus size={17} /> New invoice</button>
+            <button className="button primary" disabled={!data.materials.length} onClick={() => { setDraft(empty('Client')); setError(''); setOpen(true); }}><Plus size={17} /> New invoice</button>
           </>
         )}
       />
@@ -153,6 +214,7 @@ export function Bills() {
 
       <Modal open={open} title="Create bill / invoice" subtitle="Choose purchase for supplier bills or client for GST invoice print." onClose={() => setOpen(false)} wide>
         <form className="form-stack" onSubmit={submit}>
+          {error && <div className="alert danger-alert">{error}</div>}
           <div className="segmented form-segmented">
             <button type="button" className={draft.type === 'Purchase' ? 'active' : ''} onClick={() => changeType('Purchase')}>Purchase bill</button>
             <button type="button" className={draft.type === 'Client' ? 'active' : ''} onClick={() => changeType('Client')}>Client invoice</button>
@@ -167,13 +229,13 @@ export function Bills() {
             ) : (
               <label className="span-2"><span>Project / client *</span><select required value={draft.siteId ?? ''} onChange={(event) => { const site = data.sites.find((item) => item.id === event.target.value); setDraft({ ...draft, siteId: event.target.value, partyName: site?.clientName || site?.name || '', partyAddress: site?.location ?? '', deliveryAddress: site?.location ?? '' }); }}><option value="">Select project</option>{data.sites.map((site) => <option key={site.id} value={site.id}>{site.name} — {site.clientName}</option>)}</select></label>
             )}
-            <label><span>Reference / PO no.</span><input value={draft.referenceNo} onChange={(event) => setDraft({ ...draft, referenceNo: event.target.value })} placeholder="Invoice / PO / RA bill" /></label>
-            <label className="span-2"><span>Party address</span><textarea rows={3} value={draft.partyAddress ?? ''} onChange={(event) => setDraft({ ...draft, partyAddress: event.target.value })} /></label>
-            <label><span>Party GSTIN</span><input value={draft.partyGstin ?? ''} onChange={(event) => setDraft({ ...draft, partyGstin: event.target.value.toUpperCase() })} /></label>
-            <label><span>State</span><input value={draft.state ?? ''} onChange={(event) => setDraft({ ...draft, state: event.target.value.toUpperCase() })} placeholder="TAMIL NADU" /></label>
+            <label><span>Reference / PO no. *</span><input required value={draft.referenceNo} onChange={(event) => setDraft({ ...draft, referenceNo: event.target.value })} placeholder="Invoice / PO / RA bill" /></label>
+            <label className="span-2"><span>Party address *</span><textarea required rows={3} value={draft.partyAddress ?? ''} onChange={(event) => setDraft({ ...draft, partyAddress: event.target.value })} /></label>
+            <label><span>Party GSTIN / URP *</span><input required maxLength={15} value={draft.partyGstin ?? ''} onChange={(event) => setDraft({ ...draft, partyGstin: event.target.value.toUpperCase() })} placeholder="GSTIN or URP" /></label>
+            <label><span>State *</span><input required value={draft.state ?? ''} onChange={(event) => setDraft({ ...draft, state: event.target.value.toUpperCase() })} placeholder="TAMIL NADU" /></label>
             <label><span>E-way bill no.</span><input value={draft.ewayBillNo ?? ''} onChange={(event) => setDraft({ ...draft, ewayBillNo: event.target.value })} /></label>
             <label><span>Vehicle number</span><input value={draft.vehicleNo ?? ''} onChange={(event) => setDraft({ ...draft, vehicleNo: event.target.value.toUpperCase() })} /></label>
-            <label className="span-2"><span>Delivered to</span><input value={draft.deliveryAddress ?? ''} onChange={(event) => setDraft({ ...draft, deliveryAddress: event.target.value })} /></label>
+            <label className="span-2"><span>Delivered to {draft.type === 'Client' ? '*' : ''}</span><input required={draft.type === 'Client'} value={draft.deliveryAddress ?? ''} onChange={(event) => setDraft({ ...draft, deliveryAddress: event.target.value })} /></label>
           </div>
 
           <TransactionItemsEditor materials={data.materials} items={draft.items} onChange={(items) => setDraft({ ...draft, items })} />
