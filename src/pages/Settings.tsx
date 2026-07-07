@@ -1,7 +1,6 @@
-import { Database, RotateCcw, Save, ShieldCheck } from 'lucide-react';
+import { Save } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { PageHeader } from '../components/PageHeader';
-import { isSupabaseConfigured } from '../lib/supabase';
 import { cleanText, compactPhone, isFilled, isValidGstin, isValidIndianPhone, isZeroOrPositive } from '../lib/validation';
 import { useApp } from '../store/AppContext';
 import type { AppSettings } from '../types';
@@ -10,7 +9,7 @@ const isValidPan = (value?: string) => !value || /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(
 const isValidIfsc = (value?: string) => !value || /^[A-Z]{4}0[A-Z0-9]{6}$/.test(value);
 
 export function Settings() {
-  const { data, setData, resetWorkspace } = useApp();
+  const { data, setData } = useApp();
   const [draft, setDraft] = useState(data.settings);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
@@ -69,7 +68,7 @@ export function Settings() {
 
   return (
     <div className="page-stack">
-      <PageHeader eyebrow="Configuration" title="Company & system settings" description="Control invoice identity, tax defaults, database mode and workspace data." />
+      <PageHeader eyebrow="Configuration" title="Company & system settings" description="Control invoice identity, tax defaults and stock controls." />
       <section className="settings-grid">
         <article className="panel">
           <div className="panel-header"><div><span className="eyebrow">Business profile</span><h2>Company information</h2></div></div>
@@ -96,28 +95,6 @@ export function Settings() {
             <div className="form-actions"><span className={saved ? 'save-message visible' : 'save-message'}>Settings saved</span><button className="button primary"><Save size={17} /> Save settings</button></div>
           </form>
         </article>
-
-        <aside className="settings-side">
-          <article className="panel setup-card">
-            <div className={`setup-icon ${isSupabaseConfigured ? 'success' : ''}`}><Database size={24} /></div>
-            <h3>Database mode</h3>
-            <p>{isSupabaseConfigured ? 'Supabase environment variables are configured.' : 'The app is currently running in local browser storage mode.'}</p>
-            <span className={`status-pill ${isSupabaseConfigured ? 'success' : 'warning'}`}>{isSupabaseConfigured ? 'Supabase configured' : 'Local workspace mode'}</span>
-            <hr />
-            <p className="small-copy">Use the included SQL migration and Supabase setup guide to enable authentication, multi-user roles and cloud data.</p>
-          </article>
-          <article className="panel setup-card">
-            <div className="setup-icon"><ShieldCheck size={24} /></div>
-            <h3>Recommended roles</h3>
-            <div className="role-list"><span>Owner</span><span>Admin</span><span>Accountant</span><span>Storekeeper</span><span>Site Engineer</span><span>Viewer</span></div>
-          </article>
-          <article className="panel setup-card danger-zone">
-            <div className="setup-icon danger"><RotateCcw size={24} /></div>
-            <h3>Clear workspace</h3>
-            <p>Remove all suppliers, sites, materials, staff, transactions and manual entries.</p>
-            <button className="button danger-button" onClick={() => confirm('Clear all workspace data and return to blank defaults?') && resetWorkspace()}><RotateCcw size={16} /> Clear workspace</button>
-          </article>
-        </aside>
       </section>
     </div>
   );
