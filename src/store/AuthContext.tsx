@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const AUTH_KEY = 'constructflow-auth';
@@ -16,29 +16,46 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(
-    () => sessionStorage.getItem(AUTH_KEY) === 'true',
+    () => !isSupabaseConfigured && sessionStorage.getItem(AUTH_KEY) === 'true',
   );
-  const [loading] = useState(false);
+  const [loading, setLoading] = useState(isSupabaseConfigured);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) {
+      setLoading(false);
+      return;
+    }
+
+    let mounted = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      setIsAuthenticated(Boolean(data.session));
+      setLoading(false);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthenticated(Boolean(session));
+      setLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
 
   const login = async (username: string, password: string): Promise<{ ok: boolean; error?: string }> => {
     if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase.rpc('verify_login', {
-        p_username: username,
-        p_password: password,
+      const { error } = await supabase.auth.signInWithPassword({
+        email: username,
+        password,
       });
 
-      if (error) {
-        return { ok: false, error: error.message };
-      }
-      if (data === true) {
-        sessionStorage.setItem(AUTH_KEY, 'true');
-        setIsAuthenticated(true);
-        return { ok: true };
-      }
-      return { ok: false, error: 'Invalid username or password.' };
+      if (error) return { ok: false, error: error.message };
+      setIsAuthenticated(true);
+      return { ok: true };
     }
 
-    // Local fallback mode (VITE_USE_SUPABASE=false): hardcoded credentials.
     const ok = username === LOCAL_USERNAME && password === LOCAL_PASSWORD;
     if (ok) {
       sessionStorage.setItem(AUTH_KEY, 'true');
@@ -49,6 +66,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    if (isSupabaseConfigured && supabase) {
+      void supabase.auth.signOut();
+    }
     sessionStorage.removeItem(AUTH_KEY);
     setIsAuthenticated(false);
   };

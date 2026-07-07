@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { loadLocalData, resetLocalData, saveLocalData } from '../lib/storage';
+import { loadLocalData, loadPersistedData, resetLocalData, savePersistedData } from '../lib/storage';
 import { uid } from '../lib/helpers';
 import { attendanceKey, defaultDeductionDecision } from '../lib/helpers';
+import { isSupabaseConfigured } from '../lib/supabase';
+import { useAuth } from './AuthContext';
 import type { AppData, AuditEntry, Bill, DayAttendance, DeductionDecision, Employee, Material, Payment, Receipt, SalaryAdvance, Site, Supplier, Supply, Voucher } from '../types';
 
 interface AppContextValue {
@@ -30,7 +32,7 @@ interface AppContextValue {
   getDeductionDecision: (employeeId: string) => DeductionDecision;
   addSalaryAdvance: (advance: SalaryAdvance) => void;
   clearSalaryAdvance: (id: string) => void;
-  resetDemo: () => void;
+  resetWorkspace: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -51,7 +53,40 @@ const recomputeBillStatuses = (data: AppData): Bill[] => data.bills.map((bill) =
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<AppData>(() => loadLocalData());
-  useEffect(() => saveLocalData(data), [data]);
+  const [cloudLoaded, setCloudLoaded] = useState(!isSupabaseConfigured);
+  const { isAuthenticated, loading } = useAuth();
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setCloudLoaded(true);
+      return;
+    }
+    if (loading || !isAuthenticated) {
+      setCloudLoaded(false);
+      return;
+    }
+
+    let cancelled = false;
+    setCloudLoaded(false);
+    loadPersistedData().then((remoteData) => {
+      if (cancelled) return;
+      setData(remoteData);
+      setCloudLoaded(true);
+    }).catch((error) => {
+      console.error('Unable to initialize Supabase workspace', error);
+      if (!cancelled) setCloudLoaded(true);
+    });
+
+    return () => { cancelled = true; };
+  }, [isAuthenticated, loading]);
+
+  useEffect(() => {
+    if (isSupabaseConfigured && (!isAuthenticated || !cloudLoaded)) return;
+    const handle = window.setTimeout(() => {
+      void savePersistedData(data);
+    }, 350);
+    return () => window.clearTimeout(handle);
+  }, [cloudLoaded, data, isAuthenticated]);
 
   const mutate = useCallback((fn: (current: AppData) => AppData) => setData((current) => fn(current)), []);
 
@@ -81,10 +116,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     getDeductionDecision: (employeeId) => data.deductionDecisions[employeeId] ?? defaultDeductionDecision(),
     addSalaryAdvance: (advance) => mutate((current) => ({ ...current, salaryAdvances: [advance, ...current.salaryAdvances], auditLog: [audit('Created', 'Staff & Attendance', advance.id, `Advance of ${advance.amount} recorded`), ...current.auditLog] })),
     clearSalaryAdvance: (id) => mutate((current) => ({ ...current, salaryAdvances: current.salaryAdvances.map((advance) => advance.id === id ? { ...advance, cleared: true } : advance), auditLog: [audit('Updated', 'Staff & Attendance', id, 'Advance marked as cleared'), ...current.auditLog] })),
-    resetDemo: () => {
+    resetWorkspace: () => {
       const reset = resetLocalData();
-      reset.auditLog = [audit('Reset', 'Company', 'RESET', 'Demo workspace restored to default data'), ...reset.auditLog];
+      reset.auditLog = [audit('Reset', 'Company', 'RESET', 'Workspace cleared to blank defaults'), ...reset.auditLog];
       setData(reset);
+      void savePersistedData(reset);
     },
   }), [data, mutate]);
 
