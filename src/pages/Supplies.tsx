@@ -5,7 +5,7 @@ import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
 import { TransactionItemsEditor } from '../components/TransactionItemsEditor';
-import { currency, documentNo, downloadCsv, inventoryRows, itemsSubtotal, today, uid } from '../lib/helpers';
+import { currency, downloadCsv, inventoryRows, itemsSubtotal, nextDocumentNo, stockShortage, today, uid } from '../lib/helpers';
 import { cleanText, hasDuplicate, hasValidItems, isFilled } from '../lib/validation';
 import { useApp } from '../store/AppContext';
 import type { Supply } from '../types';
@@ -16,7 +16,7 @@ export function Supplies() {
   const first = data.materials[0];
   const empty = (): Supply => ({
     id: uid('iss'),
-    issueNo: documentNo('ISS', data.supplies.length),
+    issueNo: nextDocumentNo('ISS', data.supplies.map((supply) => supply.issueNo)),
     date: today(),
     siteId: data.sites[0]?.id ?? '',
     requestedBy: '',
@@ -70,10 +70,11 @@ export function Supplies() {
       return;
     }
 
-    const invalid = next.items.find((item) => item.quantity > (stock.find((row) => row.id === item.materialId)?.availableQty ?? 0));
-    if (invalid && data.settings.strictStockControl) {
-      const material = data.materials.find((item) => item.id === invalid.materialId);
-      setError(`Insufficient stock for ${material?.name ?? 'material'}. Available: ${stock.find((row) => row.id === invalid.materialId)?.availableQty ?? 0} ${material?.unit ?? ''}.`);
+    const shortage = stockShortage(next.items, stock);
+    if (shortage && data.settings.strictStockControl) {
+      const [materialId] = shortage;
+      const material = data.materials.find((item) => item.id === materialId);
+      setError(`Insufficient stock for ${material?.name ?? 'material'}. Available: ${stock.find((row) => row.id === materialId)?.availableQty ?? 0} ${material?.unit ?? ''}.`);
       return;
     }
 

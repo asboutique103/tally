@@ -4,7 +4,7 @@ import { EmptyState } from '../components/EmptyState';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
-import { currency, downloadCsv, uid } from '../lib/helpers';
+import { currency, downloadCsv, today, uid } from '../lib/helpers';
 import { cleanText, compactPhone, hasDuplicate, isFilled, isPositive, isSameOrAfter, isValidIndianPhone } from '../lib/validation';
 import { useApp } from '../store/AppContext';
 import type { Site } from '../types';
@@ -18,7 +18,7 @@ const emptySite = (): Site => ({
   siteEngineer: '',
   phone: '',
   budget: 0,
-  startDate: new Date().toISOString().slice(0, 10),
+  startDate: today(),
   expectedEndDate: '',
   status: 'Planning',
   createdAt: new Date().toISOString(),
@@ -39,6 +39,17 @@ export function Sites() {
   const consumption = (siteId: string) =>
     data.supplies.filter((supply) => supply.siteId === siteId).reduce((sum, supply) => sum + supply.items.reduce((a, item) => a + item.quantity * item.rate, 0), 0)
     + data.receipts.filter((receipt) => receipt.destination === 'Direct to Site' && receipt.siteId === siteId).reduce((sum, receipt) => sum + receipt.items.reduce((a, item) => a + item.quantity * item.rate, 0), 0);
+
+  const requestDelete = (site: Site) => {
+    const inUse = data.receipts.some((receipt) => receipt.siteId === site.id)
+      || data.supplies.some((supply) => supply.siteId === site.id)
+      || data.bills.some((bill) => bill.siteId === site.id);
+    if (inUse) {
+      alert('This site is already used in receipts, issues or invoices. Keep it for audit history.');
+      return;
+    }
+    if (confirm(`Delete ${site.name}?`)) deleteSite(site.id);
+  };
 
   const openCreate = () => {
     setDraft({ ...emptySite(), code: `SITE-${String(data.sites.length + 1).padStart(3, '0')}` });
@@ -143,7 +154,7 @@ export function Sites() {
                   </div>
                   <div className="entity-card-actions">
                     <button className="button secondary small" onClick={() => openEdit(site)}><Pencil size={15} /> Edit</button>
-                    <button className="icon-button danger" onClick={() => confirm(`Delete ${site.name}?`) && deleteSite(site.id)} aria-label={`Delete ${site.name}`}><Trash2 size={16} /></button>
+                    <button className="icon-button danger" onClick={() => requestDelete(site)} aria-label={`Delete ${site.name}`}><Trash2 size={16} /></button>
                   </div>
                 </article>
               );

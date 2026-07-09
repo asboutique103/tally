@@ -4,7 +4,7 @@ import { EmptyState } from '../components/EmptyState';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
-import { billBalance, currency, documentNo, downloadCsv, today, uid } from '../lib/helpers';
+import { billBalance, currency, downloadCsv, nextDocumentNo, today, uid } from '../lib/helpers';
 import { cleanText, hasDuplicate, isFilled, isPositive } from '../lib/validation';
 import { useApp } from '../store/AppContext';
 import type { Payment } from '../types';
@@ -15,7 +15,7 @@ export function Payments() {
   const firstBill = openBills[0];
   const empty = (): Payment => ({
     id: uid('pay'),
-    paymentNo: documentNo('PAY', data.payments.length),
+    paymentNo: nextDocumentNo('PAY', data.payments.map((payment) => payment.paymentNo)),
     date: today(),
     billId: firstBill?.id ?? '',
     partyName: firstBill?.partyName ?? '',
@@ -56,6 +56,7 @@ export function Payments() {
       ...draft,
       paymentNo: cleanText(draft.paymentNo).toUpperCase(),
       partyName: cleanText(draft.partyName),
+      direction: bill.type === 'Client' ? 'Received' : 'Paid',
       reference: cleanText(draft.reference).toUpperCase(),
       notes: cleanText(draft.notes),
       amount: draft.amount || 0,
@@ -156,7 +157,7 @@ export function Payments() {
             <label><span>Payment number *</span><input required value={draft.paymentNo} onChange={(event) => setDraft({ ...draft, paymentNo: event.target.value.toUpperCase() })} /></label>
             <label><span>Date *</span><input required type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} /></label>
             <label className="span-2"><span>Open bill *</span><select required value={draft.billId} onChange={(event) => selectBill(event.target.value)}><option value="">Select bill</option>{openBills.map((bill) => <option key={bill.id} value={bill.id}>{bill.billNo} / {bill.partyName} / Balance {currency(billBalance(data, bill))}</option>)}</select></label>
-            <label><span>Direction *</span><select required value={draft.direction} onChange={(event) => setDraft({ ...draft, direction: event.target.value as Payment['direction'] })}><option>Paid</option><option>Received</option></select></label>
+            <label><span>Direction *</span><select required disabled value={draft.direction}><option>Paid</option><option>Received</option></select></label>
             <label><span>Amount *</span><input required type="number" min="0.01" step="0.01" value={draft.amount} onChange={(event) => setDraft({ ...draft, amount: Number(event.target.value) })} /></label>
             <label><span>Mode *</span><select required value={draft.mode} onChange={(event) => setDraft({ ...draft, mode: event.target.value as Payment['mode'] })}><option>Cash</option><option>Bank Transfer</option><option>Cheque</option><option>UPI</option><option>Card</option></select></label>
             <label><span>Reference {draft.mode !== 'Cash' ? '*' : ''}</span><input required={draft.mode !== 'Cash'} value={draft.reference} onChange={(event) => setDraft({ ...draft, reference: event.target.value })} placeholder="UTR / cheque / transaction ID" /></label>

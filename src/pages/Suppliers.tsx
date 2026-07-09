@@ -40,6 +40,16 @@ export function Suppliers() {
       sum + bill.items.reduce((s, item) => s + item.quantity * item.rate * (1 + item.taxRate / 100), 0) + bill.otherCharges - bill.discount, 0)
     - data.payments.filter((payment) => data.bills.some((bill) => bill.id === payment.billId && bill.supplierId === supplierId)).reduce((sum, payment) => sum + payment.amount, 0);
 
+  const requestDelete = (supplier: Supplier) => {
+    const inUse = data.receipts.some((receipt) => receipt.supplierId === supplier.id)
+      || data.bills.some((bill) => bill.supplierId === supplier.id);
+    if (inUse) {
+      alert('This supplier is already used in receipts or bills. Keep it for audit history.');
+      return;
+    }
+    if (confirm(`Delete ${supplier.name}?`)) deleteSupplier(supplier.id);
+  };
+
   const openCreate = () => {
     setDraft({ ...emptySupplier(), code: `SUP-${String(data.suppliers.length + 1).padStart(3, '0')}` });
     setError('');
@@ -136,7 +146,7 @@ export function Suppliers() {
                 </div>
                 <div className="entity-card-actions">
                   <button className="button secondary small" onClick={() => openEdit(supplier)}><Pencil size={15} /> Edit</button>
-                  <button className="icon-button danger" onClick={() => confirm(`Delete ${supplier.name}?`) && deleteSupplier(supplier.id)} aria-label={`Delete ${supplier.name}`}><Trash2 size={16} /></button>
+                  <button className="icon-button danger" onClick={() => requestDelete(supplier)} aria-label={`Delete ${supplier.name}`}><Trash2 size={16} /></button>
                 </div>
               </article>
             ))}

@@ -5,15 +5,14 @@ import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
 import { TransactionItemsEditor } from '../components/TransactionItemsEditor';
 import {
-  amountInIndianWords, billBalance, billTotal, currency, documentNo, downloadCsv, inventoryRows,
-  itemsSubtotal, itemsTax, today, uid,
+  amountInIndianWords, billBalance, billTotal, currency, downloadCsv, inventoryRows,
+  itemsSubtotal, itemsTax, nextDocumentNo, stockShortage, today, uid,
 } from '../lib/helpers';
 import { cleanText, hasDuplicate, hasValidItems, isFilled, isSameOrAfter, isValidGstin } from '../lib/validation';
 import { useApp } from '../store/AppContext';
 import type { Bill, BillType } from '../types';
 
 const formatDate = (value: string) => value ? new Date(value).toLocaleDateString('en-IN') : '—';
-const taxableTotal = (bill: Bill) => itemsSubtotal(bill.items) + bill.otherCharges - bill.discount;
 
 export function Bills() {
   const { data, addBill, deleteBill } = useApp();
@@ -24,7 +23,7 @@ export function Bills() {
     const site = data.sites[0];
     return {
       id: uid('bill'),
-      billNo: documentNo(type === 'Purchase' ? 'PB' : data.settings.invoicePrefix || 'INV', data.bills.filter((b) => b.type === type).length),
+      billNo: nextDocumentNo(type === 'Purchase' ? 'PB' : data.settings.invoicePrefix || 'INV', data.bills.filter((b) => b.type === type).map((bill) => bill.billNo)),
       type,
       date: today(),
       dueDate: today(),
@@ -121,10 +120,11 @@ export function Bills() {
     }
     if (next.inventoryPosting === 'Auto Post' && next.type === 'Client') {
       const stock = inventoryRows(data);
-      const shortage = next.items.find((item) => item.quantity > (stock.find((row) => row.id === item.materialId)?.availableQty ?? 0));
+      const shortage = stockShortage(next.items, stock);
       if (shortage && data.settings.strictStockControl) {
-        const material = data.materials.find((item) => item.id === shortage.materialId);
-        setError(`Insufficient stock for ${material?.name ?? 'material'}. Available: ${stock.find((row) => row.id === shortage.materialId)?.availableQty ?? 0} ${material?.unit ?? ''}.`);
+        const [materialId] = shortage;
+        const material = data.materials.find((item) => item.id === materialId);
+        setError(`Insufficient stock for ${material?.name ?? 'material'}. Available: ${stock.find((row) => row.id === materialId)?.availableQty ?? 0} ${material?.unit ?? ''}.`);
         return;
       }
     }
@@ -140,7 +140,7 @@ export function Bills() {
     setDraft({
       ...draft,
       type,
-      billNo: documentNo(type === 'Purchase' ? 'PB' : data.settings.invoicePrefix || 'INV', data.bills.filter((bill) => bill.type === type).length),
+      billNo: nextDocumentNo(type === 'Purchase' ? 'PB' : data.settings.invoicePrefix || 'INV', data.bills.filter((bill) => bill.type === type).map((bill) => bill.billNo)),
       supplierId: type === 'Purchase' ? supplier?.id : undefined,
       siteId: type === 'Client' ? site?.id : undefined,
       partyName: type === 'Purchase' ? supplier?.name ?? '' : site?.clientName || site?.name || '',
@@ -252,7 +252,7 @@ export function Bills() {
 
       <Modal open={Boolean(view)} title={view?.billNo ?? 'Bill'} subtitle="Print-ready invoice view" onClose={() => setView(null)} wide>
         {view && (() => {
-          const subtotal = taxableTotal(view);
+          const subtotal = itemsSubtotal(view.items);
           const tax = itemsTax(view.items);
           const rate = view.items[0]?.taxRate ?? data.settings.defaultTaxRate;
           const halfRate = rate / 2;
@@ -301,7 +301,9 @@ export function Bills() {
                   {Array.from({ length: Math.max(0, 6 - view.items.length) }, (_, index) => <tr key={`blank-${index}`}><td>&nbsp;</td><td /><td /><td /><td /><td /></tr>)}
                 </tbody>
                 <tfoot>
-                  <tr><td colSpan={2} rowSpan={4} className="vmv-words"><strong>Amount in word Rupees:</strong> {amountInIndianWords(grandTotal)}</td><td /><td colSpan={2}><strong>Total Amount</strong></td><td><strong>{numberForInvoice(subtotal)}</strong></td></tr>
+                  <tr><td colSpan={2} rowSpan={6} className="vmv-words"><strong>Amount in word Rupees:</strong> {amountInIndianWords(grandTotal)}</td><td /><td colSpan={2}><strong>Item Amount</strong></td><td><strong>{numberForInvoice(subtotal)}</strong></td></tr>
+                  <tr><td /><td colSpan={2}><strong>Other Charges</strong></td><td><strong>{numberForInvoice(view.otherCharges)}</strong></td></tr>
+                  <tr><td /><td colSpan={2}><strong>Discount</strong></td><td><strong>-{numberForInvoice(view.discount)}</strong></td></tr>
                   <tr><td /><td colSpan={2}><strong>CGST@{numberForInvoice(halfRate)}%</strong></td><td><strong>{numberForInvoice(tax / 2)}</strong></td></tr>
                   <tr><td /><td colSpan={2}><strong>SGST@{numberForInvoice(halfRate)}%</strong></td><td><strong>{numberForInvoice(tax / 2)}</strong></td></tr>
                   <tr><td /><td colSpan={2} className="vmv-grand"><strong>GRAND TOTAL</strong></td><td className="vmv-grand"><strong>{numberForInvoice(grandTotal)}</strong></td></tr>

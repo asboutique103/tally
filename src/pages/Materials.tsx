@@ -53,6 +53,17 @@ export function Materials() {
     [inventory, query],
   );
 
+  const requestDelete = (item: InventoryRow) => {
+    const inUse = data.receipts.some((receipt) => receipt.items.some((line) => line.materialId === item.id))
+      || data.supplies.some((supply) => supply.items.some((line) => line.materialId === item.id))
+      || data.bills.some((bill) => bill.items.some((line) => line.materialId === item.id));
+    if (inUse) {
+      alert('This material is already used in receipts, issues or invoices. Keep it for audit history.');
+      return;
+    }
+    if (confirm(`Delete ${item.name}?`)) deleteMaterial(item.id);
+  };
+
   const openCreate = () => {
     setDraft({ ...emptyMaterial(), code: `MAT-${String(data.materials.length + 1).padStart(3, '0')}` });
     setError('');
@@ -165,7 +176,7 @@ export function Materials() {
                   <td>
                     <div className="row-actions">
                       <button className="icon-button" onClick={() => openEdit(item)} aria-label={`Edit ${item.name}`}><Pencil size={16} /></button>
-                      <button className="icon-button danger" onClick={() => confirm(`Delete ${item.name}?`) && deleteMaterial(item.id)} aria-label={`Delete ${item.name}`}><Trash2 size={16} /></button>
+                      <button className="icon-button danger" onClick={() => requestDelete(item)} aria-label={`Delete ${item.name}`}><Trash2 size={16} /></button>
                     </div>
                   </td>
                 </tr>

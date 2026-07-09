@@ -16,7 +16,7 @@ import { Link } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { PageHeader } from '../components/PageHeader';
 import { StatCard } from '../components/StatCard';
-import { billBalance, billTotal, currency, inventoryRows, number, today } from '../lib/helpers';
+import { billBalance, billTotal, currency, dateInputValue, inventoryRows, number, today } from '../lib/helpers';
 import { useApp } from '../store/AppContext';
 
 export function Dashboard() {
@@ -24,7 +24,7 @@ export function Dashboard() {
   const todayValue = today();
   const nextWeek = new Date();
   nextWeek.setDate(nextWeek.getDate() + 7);
-  const nextWeekValue = nextWeek.toISOString().slice(0, 10);
+  const nextWeekValue = dateInputValue(nextWeek);
 
   const inventory = inventoryRows(data);
   const stockValue = inventory.reduce((sum, item) => sum + item.stockValue, 0);

@@ -5,8 +5,8 @@ import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
 import { TransactionItemsEditor } from '../components/TransactionItemsEditor';
-import { currency, documentNo, downloadCsv, itemsSubtotal, itemsTax, today, uid } from '../lib/helpers';
-import { cleanText, hasValidItems, isFilled } from '../lib/validation';
+import { currency, downloadCsv, itemsSubtotal, itemsTax, nextDocumentNo, today, uid } from '../lib/helpers';
+import { cleanText, hasDuplicate, hasValidItems, isFilled } from '../lib/validation';
 import { useApp } from '../store/AppContext';
 import type { Receipt, TransactionItem } from '../types';
 
@@ -17,7 +17,7 @@ export function Receipts() {
   const firstMaterial = data.materials[0];
   const empty = (): Receipt => ({
     id: uid('rec'),
-    receiptNo: documentNo('GRN', data.receipts.length),
+    receiptNo: nextDocumentNo('GRN', data.receipts.map((receipt) => receipt.receiptNo)),
     date: today(),
     supplierId: data.suppliers[0]?.id ?? '',
     invoiceNo: '',
@@ -71,6 +71,10 @@ export function Receipts() {
     }
     if (!hasValidItems(next.items)) {
       setError('Add at least one material line with material, quantity, rate and tax.');
+      return;
+    }
+    if (hasDuplicate(data.receipts, next.id, (receipt) => receipt.receiptNo.toUpperCase() === next.receiptNo)) {
+      setError('Another GRN already uses this receipt number.');
       return;
     }
     if (data.receipts.some((receipt) => receipt.supplierId === next.supplierId && receipt.invoiceNo.toUpperCase() === next.invoiceNo)) {

@@ -1,8 +1,10 @@
 import { Save } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { PageHeader } from '../components/PageHeader';
+import { uid } from '../lib/helpers';
 import { cleanText, compactPhone, isFilled, isValidGstin, isValidIndianPhone, isZeroOrPositive } from '../lib/validation';
 import { useApp } from '../store/AppContext';
+import { useAuth } from '../store/AuthContext';
 import type { AppSettings } from '../types';
 
 const isValidPan = (value?: string) => !value || /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(value);
@@ -10,6 +12,7 @@ const isValidIfsc = (value?: string) => !value || /^[A-Z]{4}0[A-Z0-9]{6}$/.test(
 
 export function Settings() {
   const { data, setData } = useApp();
+  const { username } = useAuth();
   const [draft, setDraft] = useState(data.settings);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
@@ -60,7 +63,19 @@ export function Settings() {
       return;
     }
 
-    setData((current) => ({ ...current, settings: next }));
+    setData((current) => ({
+      ...current,
+      settings: next,
+      auditLog: [{
+        id: uid('audit'),
+        timestamp: new Date().toISOString(),
+        actor: username || 'Admin',
+        action: 'Updated',
+        module: 'Company',
+        documentNo: 'SETTINGS',
+        details: 'Company and system settings updated',
+      }, ...current.auditLog],
+    }));
     setError('');
     setSaved(true);
     setTimeout(() => setSaved(false), 1800);

@@ -9,7 +9,7 @@ import { StatCard } from '../components/StatCard';
 import {
   attendanceKey, attendanceMixFor, branchAnalytics, calcEmployeeSalary, currency, daysInMonth,
   defaultDayAttendance, departmentAnalytics, downloadCsv, monthLabel, number, outstandingAdvanceFor,
-  summarizeAttendance, uid,
+  summarizeAttendance, today, uid,
 } from '../lib/helpers';
 import { useApp } from '../store/AppContext';
 import type { DayAttendance, DeductionDecision, Employee, StaffBranch } from '../types';
@@ -46,7 +46,7 @@ export function Attendance() {
   const [draft, setDraft] = useState<Employee>(emptyEmployee());
   const [advanceModal, setAdvanceModal] = useState<Employee | null>(null);
   const [advanceAmount, setAdvanceAmount] = useState(0);
-  const [advanceDate, setAdvanceDate] = useState(new Date().toISOString().slice(0, 10));
+  const [advanceDate, setAdvanceDate] = useState(today());
   const [advanceReason, setAdvanceReason] = useState('');
 
   const total = daysInMonth(year, month);
@@ -94,7 +94,7 @@ export function Attendance() {
     event.preventDefault();
     if (!advanceModal || advanceAmount <= 0 || !advanceDate) return;
     app.addSalaryAdvance({ id: uid('adv'), employeeId: advanceModal.id, amount: advanceAmount, givenDate: advanceDate, note: advanceReason, cleared: false, createdAt: new Date().toISOString() });
-    setAdvanceModal(null); setAdvanceAmount(0); setAdvanceDate(new Date().toISOString().slice(0, 10)); setAdvanceReason('');
+    setAdvanceModal(null); setAdvanceAmount(0); setAdvanceDate(today()); setAdvanceReason('');
   };
 
   const exportAttendance = () => {

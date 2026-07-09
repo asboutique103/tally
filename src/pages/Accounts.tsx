@@ -2,7 +2,7 @@ import { BookOpen, Download, Landmark, Plus, Scale, Trash2, WalletCards } from '
 import { useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
-import { accountActivity, accountBalances, allVouchers, currency, documentNo, downloadCsv, today, uid, voucherTotals } from '../lib/helpers';
+import { accountActivity, accountBalances, allVouchers, currency, downloadCsv, nextDocumentNo, today, uid, voucherTotals } from '../lib/helpers';
 import { useApp } from '../store/AppContext';
 import type { Voucher, VoucherLine, VoucherType } from '../types';
 
@@ -23,7 +23,7 @@ export function Accounts() {
   const [tab, setTab] = useState<Tab>('Day Book');
   const [ledgerId, setLedgerId] = useState(data.accounts[0]?.id ?? '');
   const [open, setOpen] = useState(false);
-  const empty = (): Voucher => ({ id: uid('vch'), voucherNo: documentNo('JV', data.vouchers.length), type: 'Journal', date: today(), partyName: '', reference: '', narration: '', lines: [newLine(data.accounts[0]?.id), newLine(data.accounts[1]?.id)], sourceType: 'Manual', createdAt: new Date().toISOString() });
+  const empty = (): Voucher => ({ id: uid('vch'), voucherNo: nextDocumentNo('JV', data.vouchers.map((voucher) => voucher.voucherNo)), type: 'Journal', date: today(), partyName: '', reference: '', narration: '', lines: [newLine(data.accounts[0]?.id), newLine(data.accounts[1]?.id)], sourceType: 'Manual', createdAt: new Date().toISOString() });
   const [draft, setDraft] = useState<Voucher>(empty());
 
   const vouchers = useMemo(() => allVouchers(data), [data]);
@@ -48,6 +48,10 @@ export function Accounts() {
     }
     if (draft.lines.some((entry) => !entry.accountId || (entry.debit > 0 && entry.credit > 0))) {
       alert('Select an account and enter either debit or credit on each line.');
+      return;
+    }
+    if (data.vouchers.some((voucher) => voucher.id !== draft.id && voucher.voucherNo.toUpperCase() === draft.voucherNo.trim().toUpperCase())) {
+      alert('Another manual voucher already uses this voucher number.');
       return;
     }
     addVoucher(draft);
