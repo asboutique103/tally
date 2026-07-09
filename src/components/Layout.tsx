@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { canRoleAccess } from '../lib/access';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { useApp } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
@@ -47,8 +48,9 @@ export function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const { data } = useApp();
-  const { logout } = useAuth();
+  const { logout, role, username } = useAuth();
   const navigate = useNavigate();
+  const visibleNav = nav.filter((item) => canRoleAccess(role, item.to));
 
   const handleLogout = () => {
     logout();
@@ -64,7 +66,7 @@ export function Layout() {
         </div>
         <nav className="nav-list">
           <span className="nav-label">Workspace</span>
-          {nav.map(({ to, label, icon: Icon }) => (
+          {visibleNav.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -103,8 +105,8 @@ export function Layout() {
           <div className="topbar-right">
             <div className="notification-pill"><Package size={16} /><span>{data.materials.length} materials</span></div>
             <button className="profile-button">
-              <span className="avatar">AD</span>
-              <span className="profile-copy"><strong>Admin</strong><small>Owner access</small></span>
+              <span className="avatar">{(username || 'User').slice(0, 2).toUpperCase()}</span>
+              <span className="profile-copy"><strong>{username || 'User'}</strong><small>{role ?? 'Signed in'}</small></span>
               <ChevronDown size={16} />
             </button>
             <button className="signout-button" onClick={handleLogout} title="Sign out" aria-label="Sign out">
