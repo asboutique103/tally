@@ -3,16 +3,16 @@
 
 create extension if not exists pgcrypto;
 
-create type public.app_role as enum ('owner', 'admin', 'accountant', 'storekeeper', 'site_engineer', 'viewer');
-create type public.supplier_status as enum ('active', 'inactive');
-create type public.site_status as enum ('planning', 'active', 'on_hold', 'completed');
-create type public.receipt_destination as enum ('central_store', 'direct_to_site');
-create type public.bill_type as enum ('purchase', 'client');
-create type public.payment_status as enum ('unpaid', 'partially_paid', 'paid', 'overdue');
-create type public.payment_direction as enum ('paid', 'received');
-create type public.payment_mode as enum ('cash', 'bank_transfer', 'cheque', 'upi', 'card');
+do $$ begin create type public.app_role as enum ('owner', 'admin', 'accountant', 'storekeeper', 'site_engineer', 'viewer'); exception when duplicate_object then null; end $$;
+do $$ begin create type public.supplier_status as enum ('active', 'inactive'); exception when duplicate_object then null; end $$;
+do $$ begin create type public.site_status as enum ('planning', 'active', 'on_hold', 'completed'); exception when duplicate_object then null; end $$;
+do $$ begin create type public.receipt_destination as enum ('central_store', 'direct_to_site'); exception when duplicate_object then null; end $$;
+do $$ begin create type public.bill_type as enum ('purchase', 'client'); exception when duplicate_object then null; end $$;
+do $$ begin create type public.payment_status as enum ('unpaid', 'partially_paid', 'paid', 'overdue'); exception when duplicate_object then null; end $$;
+do $$ begin create type public.payment_direction as enum ('paid', 'received'); exception when duplicate_object then null; end $$;
+do $$ begin create type public.payment_mode as enum ('cash', 'bank_transfer', 'cheque', 'upi', 'card'); exception when duplicate_object then null; end $$;
 
-create table public.profiles (
+create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text,
   phone text,
@@ -21,7 +21,7 @@ create table public.profiles (
   updated_at timestamptz not null default now()
 );
 
-create table public.organizations (
+create table if not exists public.organizations (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   gstin text,
@@ -36,7 +36,7 @@ create table public.organizations (
   updated_at timestamptz not null default now()
 );
 
-create table public.organization_members (
+create table if not exists public.organization_members (
   organization_id uuid not null references public.organizations(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
   role public.app_role not null default 'viewer',
@@ -45,7 +45,7 @@ create table public.organization_members (
   primary key (organization_id, user_id)
 );
 
-create table public.suppliers (
+create table if not exists public.suppliers (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
   code text not null,
@@ -63,7 +63,7 @@ create table public.suppliers (
   unique (organization_id, code)
 );
 
-create table public.sites (
+create table if not exists public.sites (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
   code text not null,
@@ -82,7 +82,7 @@ create table public.sites (
   unique (organization_id, code)
 );
 
-create table public.materials (
+create table if not exists public.materials (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
   code text not null,
@@ -100,7 +100,7 @@ create table public.materials (
   unique (organization_id, code)
 );
 
-create table public.material_receipts (
+create table if not exists public.material_receipts (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
   receipt_no text not null,
@@ -120,7 +120,7 @@ create table public.material_receipts (
   check ((destination = 'direct_to_site' and site_id is not null) or destination = 'central_store')
 );
 
-create table public.material_receipt_items (
+create table if not exists public.material_receipt_items (
   id uuid primary key default gen_random_uuid(),
   receipt_id uuid not null references public.material_receipts(id) on delete cascade,
   material_id uuid not null references public.materials(id),
@@ -131,7 +131,7 @@ create table public.material_receipt_items (
   created_at timestamptz not null default now()
 );
 
-create table public.material_supplies (
+create table if not exists public.material_supplies (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
   issue_no text not null,
@@ -148,7 +148,7 @@ create table public.material_supplies (
   unique (organization_id, issue_no)
 );
 
-create table public.material_supply_items (
+create table if not exists public.material_supply_items (
   id uuid primary key default gen_random_uuid(),
   supply_id uuid not null references public.material_supplies(id) on delete cascade,
   material_id uuid not null references public.materials(id),
@@ -159,7 +159,7 @@ create table public.material_supply_items (
   created_at timestamptz not null default now()
 );
 
-create table public.bills (
+create table if not exists public.bills (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
   bill_no text not null,
@@ -181,7 +181,7 @@ create table public.bills (
   check ((bill_type = 'purchase' and supplier_id is not null) or (bill_type = 'client' and site_id is not null))
 );
 
-create table public.bill_items (
+create table if not exists public.bill_items (
   id uuid primary key default gen_random_uuid(),
   bill_id uuid not null references public.bills(id) on delete cascade,
   material_id uuid references public.materials(id),
@@ -192,7 +192,7 @@ create table public.bill_items (
   created_at timestamptz not null default now()
 );
 
-create table public.payments (
+create table if not exists public.payments (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
   payment_no text not null,
@@ -210,7 +210,7 @@ create table public.payments (
   unique (organization_id, payment_no)
 );
 
-create table public.audit_logs (
+create table if not exists public.audit_logs (
   id bigint generated always as identity primary key,
   organization_id uuid,
   table_name text not null,
@@ -224,12 +224,13 @@ create table public.audit_logs (
 
 create table if not exists public.app_state (
   id uuid primary key default gen_random_uuid(),
-  owner_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  owner_id uuid default auth.uid() references auth.users(id) on delete cascade,
   workspace_key text not null default 'default',
-  data jsonb not null,
+  data jsonb not null default '{}'::jsonb,
+  version integer not null default 1,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (owner_id, workspace_key)
+  unique (workspace_key)
 );
 
 create index suppliers_org_name_idx on public.suppliers (organization_id, name);
@@ -250,6 +251,16 @@ begin
 end;
 $$;
 
+drop trigger if exists profiles_set_updated_at on public.profiles;
+drop trigger if exists organizations_set_updated_at on public.organizations;
+drop trigger if exists suppliers_set_updated_at on public.suppliers;
+drop trigger if exists sites_set_updated_at on public.sites;
+drop trigger if exists materials_set_updated_at on public.materials;
+drop trigger if exists receipts_set_updated_at on public.material_receipts;
+drop trigger if exists supplies_set_updated_at on public.material_supplies;
+drop trigger if exists bills_set_updated_at on public.bills;
+drop trigger if exists payments_set_updated_at on public.payments;
+
 create trigger profiles_set_updated_at before update on public.profiles for each row execute function public.set_updated_at();
 create trigger organizations_set_updated_at before update on public.organizations for each row execute function public.set_updated_at();
 create trigger suppliers_set_updated_at before update on public.suppliers for each row execute function public.set_updated_at();
@@ -269,6 +280,8 @@ begin
   return new;
 end;
 $$;
+
+drop trigger if exists on_auth_user_created on auth.users;
 
 create trigger on_auth_user_created
 after insert on auth.users
@@ -342,6 +355,8 @@ begin
 end;
 $$;
 
+drop trigger if exists payments_refresh_bill on public.payments;
+
 create trigger payments_refresh_bill
 after insert or update or delete on public.payments
 for each row execute function public.payment_refresh_bill_trigger();
@@ -361,6 +376,8 @@ begin
 end;
 $$;
 
+drop trigger if exists supply_item_stock_guard on public.material_supply_items;
+
 create trigger supply_item_stock_guard
 before insert or update on public.material_supply_items
 for each row execute function public.prevent_negative_stock();
@@ -376,6 +393,14 @@ begin
   return coalesce(new, old);
 end;
 $$;
+
+drop trigger if exists suppliers_audit on public.suppliers;
+drop trigger if exists sites_audit on public.sites;
+drop trigger if exists materials_audit on public.materials;
+drop trigger if exists receipts_audit on public.material_receipts;
+drop trigger if exists supplies_audit on public.material_supplies;
+drop trigger if exists bills_audit on public.bills;
+drop trigger if exists payments_audit on public.payments;
 
 create trigger suppliers_audit after insert or update or delete on public.suppliers for each row execute function public.audit_row_changes();
 create trigger sites_audit after insert or update or delete on public.sites for each row execute function public.audit_row_changes();
@@ -452,6 +477,38 @@ alter table public.payments enable row level security;
 alter table public.audit_logs enable row level security;
 alter table public.app_state enable row level security;
 
+drop policy if exists profiles_self_select on public.profiles;
+drop policy if exists profiles_self_update on public.profiles;
+drop policy if exists organizations_member_select on public.organizations;
+drop policy if exists organizations_admin_update on public.organizations;
+drop policy if exists members_org_select on public.organization_members;
+drop policy if exists members_owner_manage on public.organization_members;
+drop policy if exists suppliers_member_select on public.suppliers;
+drop policy if exists suppliers_accounts_write on public.suppliers;
+drop policy if exists sites_member_select on public.sites;
+drop policy if exists sites_admin_write on public.sites;
+drop policy if exists materials_member_select on public.materials;
+drop policy if exists materials_store_write on public.materials;
+drop policy if exists receipts_member_select on public.material_receipts;
+drop policy if exists receipts_store_write on public.material_receipts;
+drop policy if exists receipt_items_member_select on public.material_receipt_items;
+drop policy if exists receipt_items_store_write on public.material_receipt_items;
+drop policy if exists supplies_member_select on public.material_supplies;
+drop policy if exists supplies_store_write on public.material_supplies;
+drop policy if exists supply_items_member_select on public.material_supply_items;
+drop policy if exists supply_items_store_write on public.material_supply_items;
+drop policy if exists bills_member_select on public.bills;
+drop policy if exists bills_accounts_write on public.bills;
+drop policy if exists bill_items_member_select on public.bill_items;
+drop policy if exists bill_items_accounts_write on public.bill_items;
+drop policy if exists payments_member_select on public.payments;
+drop policy if exists payments_accounts_write on public.payments;
+drop policy if exists audit_admin_select on public.audit_logs;
+drop policy if exists app_state_owner_select on public.app_state;
+drop policy if exists app_state_owner_insert on public.app_state;
+drop policy if exists app_state_owner_update on public.app_state;
+drop policy if exists app_state_owner_delete on public.app_state;
+
 create policy profiles_self_select on public.profiles for select using (id = auth.uid());
 create policy profiles_self_update on public.profiles for update using (id = auth.uid()) with check (id = auth.uid());
 
@@ -490,17 +547,18 @@ create policy payments_accounts_write on public.payments for all using (public.h
 
 create policy audit_admin_select on public.audit_logs for select using (organization_id is not null and public.has_org_role(organization_id, array['owner','admin']::public.app_role[]));
 
-create policy app_state_owner_select on public.app_state for select to authenticated using ((select auth.uid()) = owner_id);
-create policy app_state_owner_insert on public.app_state for insert to authenticated with check ((select auth.uid()) = owner_id);
-create policy app_state_owner_update on public.app_state for update to authenticated using ((select auth.uid()) = owner_id) with check ((select auth.uid()) = owner_id);
-create policy app_state_owner_delete on public.app_state for delete to authenticated using ((select auth.uid()) = owner_id);
-
-grant select, insert, update, delete on public.app_state to authenticated;
+-- SUPABASE_APP_STATE.sql installs protected app_users/app_sessions RPC access.
+revoke all on table public.app_state from anon, authenticated;
 
 -- Optional private bucket for receipt, bill and payment attachments.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('construction-documents', 'construction-documents', false, 10485760, array['application/pdf','image/jpeg','image/png','image/webp'])
 on conflict (id) do nothing;
+
+drop policy if exists construction_docs_read on storage.objects;
+drop policy if exists construction_docs_insert on storage.objects;
+drop policy if exists construction_docs_update on storage.objects;
+drop policy if exists construction_docs_delete on storage.objects;
 
 create policy construction_docs_read on storage.objects for select to authenticated
 using (bucket_id = 'construction-documents' and public.is_org_member((storage.foldername(name))[1]::uuid));
@@ -586,6 +644,9 @@ create index if not exists ledger_accounts_org_category_idx on public.ledger_acc
 create index if not exists vouchers_org_date_idx on public.vouchers (organization_id, voucher_date desc);
 create index if not exists voucher_lines_voucher_idx on public.voucher_lines (voucher_id);
 create index if not exists voucher_lines_account_idx on public.voucher_lines (account_id);
+
+drop trigger if exists ledger_accounts_set_updated_at on public.ledger_accounts;
+drop trigger if exists vouchers_set_updated_at on public.vouchers;
 
 create trigger ledger_accounts_set_updated_at before update on public.ledger_accounts for each row execute function public.set_updated_at();
 create trigger vouchers_set_updated_at before update on public.vouchers for each row execute function public.set_updated_at();
@@ -835,12 +896,22 @@ alter table public.ledger_accounts enable row level security;
 alter table public.vouchers enable row level security;
 alter table public.voucher_lines enable row level security;
 
+drop policy if exists ledger_accounts_member_select on public.ledger_accounts;
+drop policy if exists ledger_accounts_admin_write on public.ledger_accounts;
+drop policy if exists vouchers_member_select on public.vouchers;
+drop policy if exists vouchers_accounts_write on public.vouchers;
+drop policy if exists voucher_lines_member_select on public.voucher_lines;
+drop policy if exists voucher_lines_accounts_write on public.voucher_lines;
+
 create policy ledger_accounts_member_select on public.ledger_accounts for select using (public.is_org_member(organization_id));
 create policy ledger_accounts_admin_write on public.ledger_accounts for all using (public.has_org_role(organization_id,array['owner','admin','accountant']::public.app_role[])) with check (public.has_org_role(organization_id,array['owner','admin','accountant']::public.app_role[]));
 create policy vouchers_member_select on public.vouchers for select using (public.is_org_member(organization_id));
 create policy vouchers_accounts_write on public.vouchers for all using (public.has_org_role(organization_id,array['owner','admin','accountant']::public.app_role[])) with check (public.has_org_role(organization_id,array['owner','admin','accountant']::public.app_role[]));
 create policy voucher_lines_member_select on public.voucher_lines for select using (exists(select 1 from public.vouchers v where v.id=voucher_id and public.is_org_member(v.organization_id)));
 create policy voucher_lines_accounts_write on public.voucher_lines for all using (exists(select 1 from public.vouchers v where v.id=voucher_id and public.has_org_role(v.organization_id,array['owner','admin','accountant']::public.app_role[]))) with check (exists(select 1 from public.vouchers v where v.id=voucher_id and public.has_org_role(v.organization_id,array['owner','admin','accountant']::public.app_role[])));
+
+drop trigger if exists ledger_accounts_audit on public.ledger_accounts;
+drop trigger if exists vouchers_audit on public.vouchers;
 
 create trigger ledger_accounts_audit after insert or update or delete on public.ledger_accounts for each row execute function public.audit_row_changes();
 create trigger vouchers_audit after insert or update or delete on public.vouchers for each row execute function public.audit_row_changes();

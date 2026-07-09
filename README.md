@@ -45,9 +45,9 @@ npm run preview
 For a new database, run:
 
 1. `SUPABASE_FULL_SCHEMA_V2.sql`
-2. `SUPABASE_APP_STATE.sql` only if your database was created before the app-state persistence update
+2. `SUPABASE_APP_STATE.sql`
 
-Set `VITE_USE_SUPABASE=true`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_ANON_KEY` in your environment. In Supabase mode, login uses Supabase Auth and the full browser workspace is saved to the `public.app_state` table with RLS enabled.
+Set `VITE_USE_SUPABASE=true`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_ANON_KEY` in your environment. In Supabase mode, login uses the `public.app_users` table and protected RPC sessions. The default seeded login is username `Admin` and password `Admin@766`; change it after first sign-in if this is a live workspace.
 
 ## Important accounting behavior
 

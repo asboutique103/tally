@@ -9,9 +9,9 @@ Create a Supabase project and keep the database password secure.
 Open **SQL Editor** and run:
 
 1. `SUPABASE_FULL_SCHEMA_V2.sql`
-2. `SUPABASE_APP_STATE.sql` only if your database existed before this app-state sync update
+2. `SUPABASE_APP_STATE.sql`
 
-For a brand-new database, `SUPABASE_FULL_SCHEMA_V2.sql` already includes the app-state table. For an existing database, run `SUPABASE_APP_STATE.sql` once.
+Run `SUPABASE_APP_STATE.sql` for both new and existing databases. It is safe to run more than once and creates the protected app login/session functions used by the browser app.
 
 The SQL creates:
 
@@ -24,21 +24,26 @@ The SQL creates:
 - Bill balance, inventory and trial-balance views
 - Row Level Security policies
 - Audit logs and private document storage
-- `app_state` cloud persistence for the browser app workspace
+- `app_users` username/password login
+- Protected `app_state` cloud persistence for the browser app workspace
 
-## 3. Create the first user
+## 3. First login
 
-Go to **Authentication -> Users** and create the owner user. The browser app uses Supabase Auth email/password when `VITE_USE_SUPABASE=true`.
+`SUPABASE_APP_STATE.sql` creates the first app user:
 
-## 4. Create the organization
+- Username: `Admin`
+- Password: `Admin@766`
+- Role: `owner`
 
-Sign in as the owner user, then run:
+Use this login in the app. Do not create a shared Supabase Auth user for browser sync.
+
+## 4. Optional organization tables
 
 ```sql
 select public.create_my_organization('Your Construction Company Name');
 ```
 
-This also creates the default chart of accounts.
+The browser app saves the complete workspace through protected `app_state` RPC functions. The normalized organization tables are available for future direct database workflows and reporting.
 
 Verify:
 
@@ -52,20 +57,22 @@ from public.organization_members om
 join public.organizations o on o.id = om.organization_id;
 ```
 
-## 5. Add users and roles
+## 5. Add app users and roles
 
-Create each person in **Authentication -> Users**, copy the user UUID, then run:
+Add users to `public.app_users`. Passwords must be stored with `crypt`:
 
 ```sql
-insert into public.organization_members (
-  organization_id,
-  user_id,
-  role
+insert into public.app_users (
+  username,
+  password_hash,
+  role,
+  is_active
 )
 values (
-  'ORGANIZATION_UUID',
-  'USER_UUID',
-  'accountant'
+  'StoreUser',
+  crypt('StrongPasswordHere', gen_salt('bf')),
+  'storekeeper',
+  true
 );
 ```
 
@@ -92,10 +99,10 @@ Use only the anon public key in the frontend. Never expose the service-role key.
 
 When Supabase mode is enabled:
 
-- Sign in with the Supabase Auth email and password you created.
-- The app loads from `public.app_state` after sign-in.
+- Sign in with a username and password from `public.app_users`.
+- The app loads from `public.app_state` through protected RPC functions after sign-in.
 - Every supplier, site, material, receipt, issue, bill, payment, setting, attendance entry and audit entry is saved back to Supabase as JSON workspace state.
-- Browser local storage is only used as a fallback/cache when Supabase is unavailable.
+- Browser local storage is only used as a cache/local mode store. In Supabase mode, failed cloud saves are not silently treated as successful.
 
 ## 7. Invoice and stock behavior
 
@@ -128,7 +135,7 @@ select * from public.inventory_summary;
 select * from public.bill_balances;
 select * from public.trial_balance;
 select * from public.vouchers order by voucher_date desc;
-select owner_id, workspace_key, updated_at from public.app_state;
+select workspace_key, version, updated_at from public.app_state;
 ```
 
 8. Confirm debits equal credits:

@@ -75,6 +75,9 @@ create index if not exists vouchers_org_date_idx on public.vouchers (organizatio
 create index if not exists voucher_lines_voucher_idx on public.voucher_lines (voucher_id);
 create index if not exists voucher_lines_account_idx on public.voucher_lines (account_id);
 
+drop trigger if exists ledger_accounts_set_updated_at on public.ledger_accounts;
+drop trigger if exists vouchers_set_updated_at on public.vouchers;
+
 create trigger ledger_accounts_set_updated_at before update on public.ledger_accounts for each row execute function public.set_updated_at();
 create trigger vouchers_set_updated_at before update on public.vouchers for each row execute function public.set_updated_at();
 
@@ -323,12 +326,22 @@ alter table public.ledger_accounts enable row level security;
 alter table public.vouchers enable row level security;
 alter table public.voucher_lines enable row level security;
 
+drop policy if exists ledger_accounts_member_select on public.ledger_accounts;
+drop policy if exists ledger_accounts_admin_write on public.ledger_accounts;
+drop policy if exists vouchers_member_select on public.vouchers;
+drop policy if exists vouchers_accounts_write on public.vouchers;
+drop policy if exists voucher_lines_member_select on public.voucher_lines;
+drop policy if exists voucher_lines_accounts_write on public.voucher_lines;
+
 create policy ledger_accounts_member_select on public.ledger_accounts for select using (public.is_org_member(organization_id));
 create policy ledger_accounts_admin_write on public.ledger_accounts for all using (public.has_org_role(organization_id,array['owner','admin','accountant']::public.app_role[])) with check (public.has_org_role(organization_id,array['owner','admin','accountant']::public.app_role[]));
 create policy vouchers_member_select on public.vouchers for select using (public.is_org_member(organization_id));
 create policy vouchers_accounts_write on public.vouchers for all using (public.has_org_role(organization_id,array['owner','admin','accountant']::public.app_role[])) with check (public.has_org_role(organization_id,array['owner','admin','accountant']::public.app_role[]));
 create policy voucher_lines_member_select on public.voucher_lines for select using (exists(select 1 from public.vouchers v where v.id=voucher_id and public.is_org_member(v.organization_id)));
 create policy voucher_lines_accounts_write on public.voucher_lines for all using (exists(select 1 from public.vouchers v where v.id=voucher_id and public.has_org_role(v.organization_id,array['owner','admin','accountant']::public.app_role[]))) with check (exists(select 1 from public.vouchers v where v.id=voucher_id and public.has_org_role(v.organization_id,array['owner','admin','accountant']::public.app_role[])));
+
+drop trigger if exists ledger_accounts_audit on public.ledger_accounts;
+drop trigger if exists vouchers_audit on public.vouchers;
 
 create trigger ledger_accounts_audit after insert or update or delete on public.ledger_accounts for each row execute function public.audit_row_changes();
 create trigger vouchers_audit after insert or update or delete on public.vouchers for each row execute function public.audit_row_changes();
