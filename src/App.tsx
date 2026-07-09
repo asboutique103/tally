@@ -16,6 +16,7 @@ import { Accounts } from './pages/Accounts';
 import { AuditTrail } from './pages/AuditTrail';
 import { InventoryLedger } from './pages/InventoryLedger';
 import { Attendance } from './pages/Attendance';
+import { canRoleAccess, ROUTE_ACCESS } from './lib/access';
 import { AppProvider } from './store/AppContext';
 import { AuthProvider, useAuth } from './store/AuthContext';
 
@@ -31,6 +32,16 @@ function RequireAuth({ children }: { children: ReactElement }) {
   return children;
 }
 
+function RequireRole({ path, children }: { path: string; children: ReactElement }) {
+  const { role } = useAuth();
+  if (!canRoleAccess(role, path)) {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+}
+
+const page = (path: string, element: ReactElement) => <RequireRole path={path}>{element}</RequireRole>;
+
 export default function App() {
   return (
     <AuthProvider>
@@ -39,21 +50,22 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route element={<RequireAuth><Layout /></RequireAuth>}>
-            <Route index element={<Dashboard />} />
-            <Route path="materials" element={<Materials />} />
-            <Route path="receipts" element={<Receipts />} />
-            <Route path="supplies" element={<Supplies />} />
-            <Route path="suppliers" element={<Suppliers />} />
-            <Route path="sites" element={<Sites />} />
-            <Route path="bills" element={<Bills />} />
-            <Route path="payments" element={<Payments />} />
-            <Route path="stock-ledger" element={<InventoryLedger />} />
-            <Route path="accounts" element={<Accounts />} />
-            <Route path="attendance" element={<Attendance />} />
-            <Route path="reports" element={<Reports />} />
-            <Route path="audit" element={<AuditTrail />} />
-            <Route path="settings" element={<Settings />} />
+            <Route index element={page('/', <Dashboard />)} />
+            <Route path="materials" element={page('/materials', <Materials />)} />
+            <Route path="receipts" element={page('/receipts', <Receipts />)} />
+            <Route path="supplies" element={page('/supplies', <Supplies />)} />
+            <Route path="suppliers" element={page('/suppliers', <Suppliers />)} />
+            <Route path="sites" element={page('/sites', <Sites />)} />
+            <Route path="bills" element={page('/bills', <Bills />)} />
+            <Route path="payments" element={page('/payments', <Payments />)} />
+            <Route path="stock-ledger" element={page('/stock-ledger', <InventoryLedger />)} />
+            <Route path="accounts" element={page('/accounts', <Accounts />)} />
+            <Route path="attendance" element={page('/attendance', <Attendance />)} />
+            <Route path="reports" element={page('/reports', <Reports />)} />
+            <Route path="audit" element={page('/audit', <AuditTrail />)} />
+            <Route path="settings" element={page('/settings', <Settings />)} />
           </Route>
+          <Route path="*" element={<Navigate to={Object.keys(ROUTE_ACCESS)[0]} replace />} />
         </Routes>
       </BrowserRouter>
       </AppProvider>
