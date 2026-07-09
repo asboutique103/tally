@@ -6,7 +6,27 @@ const STORAGE_KEY = 'constructflow-ledger-v4';
 const DEPRECATED_KEYS = ['constructflow-ledger-v3', 'constructflow-ledger-v2', 'constructflow-ledger-v1'];
 const CLOUD_WORKSPACE_KEY = 'default';
 
+interface AppStateRpcResult {
+  ok: boolean;
+  data?: Partial<AppData> | null;
+  version?: number | null;
+  message?: string | null;
+}
+
+export interface LoadPersistedResult {
+  data: AppData;
+  version: number | null;
+}
+
+export interface SavePersistedResult {
+  ok: boolean;
+  version: number | null;
+  message?: string;
+}
+
 const blankWorkspace = () => structuredClone(seedData);
+
+const firstResult = (value: unknown) => (Array.isArray(value) ? value[0] : value) as AppStateRpcResult | undefined;
 
 const containsRemovedDemoData = (input: Partial<AppData>) => {
   const suppliers = input.suppliers ?? [];
@@ -79,68 +99,47 @@ export const resetLocalData = () => {
   return initial;
 };
 
-const activeSupabaseUserId = async () => {
-  if (!isSupabaseConfigured || !supabase) return null;
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) return null;
-  return data.user.id;
-};
-
-export const loadPersistedData = async (): Promise<AppData> => {
+export const loadPersistedData = async (sessionToken?: string | null): Promise<LoadPersistedResult> => {
   const localData = loadLocalData();
-  if (!isSupabaseConfigured || !supabase) return localData;
+  if (!isSupabaseConfigured || !supabase) return { data: localData, version: null };
+  if (!sessionToken) throw new Error('Missing Supabase app session.');
 
-  const userId = await activeSupabaseUserId();
-  if (!userId) return localData;
+  const { data, error } = await supabase.rpc('get_app_state', {
+    p_session_token: sessionToken,
+    p_workspace_key: CLOUD_WORKSPACE_KEY,
+  });
+  if (error) throw new Error(error.message);
 
-  const { data, error } = await supabase
-    .from('app_state')
-    .select('data')
-    .eq('workspace_key', CLOUD_WORKSPACE_KEY)
-    .maybeSingle();
+  const result = firstResult(data);
+  if (!result?.ok) throw new Error(result?.message ?? 'Unable to load Supabase app state.');
 
-  if (error) {
-    console.error('Unable to load Supabase app state', error.message);
-    return localData;
+  if (result.data) {
+    const remoteData = containsRemovedDemoData(result.data) ? blankWorkspace() : migrateData(result.data);
+    saveLocalData(remoteData);
+    return { data: remoteData, version: result.version ?? null };
   }
 
-  if (data?.data) {
-    const remoteData = data.data as Partial<AppData>;
-    if (containsRemovedDemoData(remoteData)) {
-      const initial = blankWorkspace();
-      await savePersistedData(initial);
-      return initial;
-    }
-    const migrated = migrateData(remoteData);
-    saveLocalData(migrated);
-    return migrated;
-  }
-
-  await savePersistedData(localData);
-  return localData;
+  const saved = await savePersistedData(localData, sessionToken, null);
+  return { data: localData, version: saved.version };
 };
 
-export const savePersistedData = async (data: AppData) => {
+export const savePersistedData = async (data: AppData, sessionToken?: string | null, expectedVersion?: number | null): Promise<SavePersistedResult> => {
   const persistedData = containsRemovedDemoData(data) ? blankWorkspace() : data;
   saveLocalData(persistedData);
-  if (!isSupabaseConfigured || !supabase) return;
+  if (!isSupabaseConfigured || !supabase) return { ok: true, version: null };
+  if (!sessionToken) throw new Error('Missing Supabase app session.');
 
-  const userId = await activeSupabaseUserId();
-  if (!userId) return;
+  const { data: rpcData, error } = await supabase.rpc('save_app_state', {
+    p_session_token: sessionToken,
+    p_workspace_key: CLOUD_WORKSPACE_KEY,
+    p_data: persistedData,
+    p_expected_version: expectedVersion,
+  });
+  if (error) throw new Error(error.message);
 
-  const { error } = await supabase
-    .from('app_state')
-    .upsert(
-      {
-        owner_id: userId,
-        workspace_key: CLOUD_WORKSPACE_KEY,
-        data: persistedData,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'owner_id,workspace_key' },
-    );
-
-  if (error) {
-    console.error('Unable to save Supabase app state', error.message);
+  const result = firstResult(rpcData);
+  if (!result?.ok) {
+    return { ok: false, version: result?.version ?? expectedVersion ?? null, message: result?.message ?? 'Cloud workspace changed before this save.' };
   }
+  return { ok: true, version: result.version ?? null };
 };

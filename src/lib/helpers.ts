@@ -1,7 +1,13 @@
 import type { AppData, Bill, DayAttendance, DeductionDecision, Employee, InventoryRow, StockMovement, TransactionItem, Voucher, VoucherLine } from '../types';
 
 export const uid = (prefix = 'id') => `${prefix}-${crypto.randomUUID()}`;
-export const today = () => new Date().toISOString().slice(0, 10);
+export const dateInputValue = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+export const today = () => dateInputValue();
 export const currency = (value: number, code = 'INR') =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: code, maximumFractionDigits: 2 }).format(value || 0);
 export const number = (value: number, digits = 2) =>
@@ -41,6 +47,15 @@ export const amountInIndianWords = (amount: number) => {
 };
 
 export const documentNo = (prefix: string, count: number) => `${prefix}-${String(count + 1).padStart(4, '0')}`;
+export const nextDocumentNo = (prefix: string, existing: string[]) => {
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^${escapedPrefix}-(\\d+)$`, 'i');
+  const max = existing.reduce((currentMax, value) => {
+    const match = pattern.exec(value.trim());
+    return match ? Math.max(currentMax, Number(match[1])) : currentMax;
+  }, 0);
+  return documentNo(prefix, max);
+};
 
 export const itemSubtotal = (item: TransactionItem) => item.quantity * item.rate;
 export const itemTax = (item: TransactionItem) => itemSubtotal(item) * (item.taxRate / 100);
@@ -50,6 +65,18 @@ export const billTotal = (bill: Bill) => itemsSubtotal(bill.items) + itemsTax(bi
 export const paidForBill = (data: AppData, billId: string) =>
   data.payments.filter((payment) => payment.billId === billId).reduce((sum, payment) => sum + payment.amount, 0);
 export const billBalance = (data: AppData, bill: Bill) => Math.max(0, billTotal(bill) - paidForBill(data, bill.id));
+
+export const itemQuantitiesByMaterial = (items: TransactionItem[]) => items.reduce((map, item) => {
+  map.set(item.materialId, (map.get(item.materialId) ?? 0) + item.quantity);
+  return map;
+}, new Map<string, number>());
+
+export const stockShortage = (items: TransactionItem[], inventory: InventoryRow[]) => {
+  const quantities = itemQuantitiesByMaterial(items);
+  return [...quantities.entries()].find(([materialId, quantity]) =>
+    quantity > (inventory.find((row) => row.id === materialId)?.availableQty ?? 0),
+  );
+};
 
 export const stockMovements = (data: AppData): StockMovement[] => {
   const rows: StockMovement[] = [];
