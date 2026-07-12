@@ -61,8 +61,8 @@ export function Layout() {
     <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <aside className={`sidebar ${mobileOpen ? 'open' : ''} ${collapsed ? 'collapsed' : ''}`}>
         <div className="brand-row">
-          <div className="brand-mark"><Building2 size={23} /></div>
-          <div><strong>ConstructFlow</strong><span>Ledger & Materials</span></div>
+          <div className="brand-mark brand-mark-logo"><img src="/logo.png" alt="VMV Enterprise" /></div>
+          <div><strong>VMV Enterprise</strong><span>Building Today · Creating Tomorrow</span></div>
         </div>
         <nav className="nav-list">
           <span className="nav-label">Workspace</span>
