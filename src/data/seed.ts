@@ -18,6 +18,7 @@ const systemAccounts: LedgerAccount[] = [
   { id: 'acc-site-expense', code: '5100', name: 'Site Material Consumption', category: 'Expense', group: 'Direct Expenses', openingBalance: 0, createdAt: now },
   { id: 'acc-other-charges', code: '5200', name: 'Freight & Other Charges', category: 'Expense', group: 'Direct Expenses', openingBalance: 0, createdAt: now },
   { id: 'acc-discount-allowed', code: '5300', name: 'Discount Allowed', category: 'Expense', group: 'Indirect Expenses', openingBalance: 0, createdAt: now },
+  { id: 'acc-wages-expense', code: '5400', name: 'Wages & Staff Payments', category: 'Expense', group: 'Direct Expenses', openingBalance: 0, createdAt: now },
 ];
 
 export const seedData: AppData = {
