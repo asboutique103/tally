@@ -2,8 +2,6 @@ import { seedData } from '../data/seed';
 import { isSupabaseConfigured, supabase } from './supabase';
 import type { AppData } from '../types';
 
-const STORAGE_KEY = 'constructflow-ledger-v4';
-const DEPRECATED_KEYS = ['constructflow-ledger-v3', 'constructflow-ledger-v2', 'constructflow-ledger-v1'];
 const CLOUD_WORKSPACE_KEY = 'default';
 
 interface AppStateRpcResult {
@@ -66,42 +64,15 @@ const migrateData = (input: Partial<AppData>): AppData => {
   };
 };
 
-export const loadLocalData = (): AppData => {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    DEPRECATED_KEYS.forEach((key) => localStorage.removeItem(key));
-    const initial = blankWorkspace();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
-    return initial;
-  }
-  try {
-    const parsed = JSON.parse(raw) as Partial<AppData>;
-    if (containsRemovedDemoData(parsed)) {
-      const initial = blankWorkspace();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
-      return initial;
-    }
-    const migrated = migrateData(parsed);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
-    return migrated;
-  } catch {
-    const initial = blankWorkspace();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
-    return initial;
-  }
-};
-
-export const saveLocalData = (data: AppData) => localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-
-export const resetLocalData = () => {
-  const initial = blankWorkspace();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
-  return initial;
-};
-
+/**
+ * Supabase is the single source of truth for app data. Nothing is cached in
+ * localStorage: every read goes to the database, and every write is pushed
+ * there immediately. If Supabase isn't configured (e.g. local dev without
+ * env vars), the app falls back to an in-memory-only blank workspace that is
+ * never persisted anywhere.
+ */
 export const loadPersistedData = async (sessionToken?: string | null): Promise<LoadPersistedResult> => {
-  const localData = loadLocalData();
-  if (!isSupabaseConfigured || !supabase) return { data: localData, version: null };
+  if (!isSupabaseConfigured || !supabase) return { data: blankWorkspace(), version: null };
   if (!sessionToken) throw new Error('Missing Supabase app session.');
 
   const { data, error } = await supabase.rpc('get_app_state', {
@@ -115,17 +86,17 @@ export const loadPersistedData = async (sessionToken?: string | null): Promise<L
 
   if (result.data) {
     const remoteData = containsRemovedDemoData(result.data) ? blankWorkspace() : migrateData(result.data);
-    saveLocalData(remoteData);
     return { data: remoteData, version: result.version ?? null };
   }
 
-  const saved = await savePersistedData(localData, sessionToken, null);
-  return { data: localData, version: saved.version };
+  const blank = blankWorkspace();
+  const saved = await savePersistedData(blank, sessionToken, null);
+  if (!saved.ok) throw new Error(saved.message ?? 'Unable to initialize Supabase workspace.');
+  return { data: blank, version: saved.version };
 };
 
 export const savePersistedData = async (data: AppData, sessionToken?: string | null, expectedVersion?: number | null): Promise<SavePersistedResult> => {
   const persistedData = containsRemovedDemoData(data) ? blankWorkspace() : data;
-  saveLocalData(persistedData);
   if (!isSupabaseConfigured || !supabase) return { ok: true, version: null };
   if (!sessionToken) throw new Error('Missing Supabase app session.');
 
