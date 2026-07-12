@@ -1,4 +1,4 @@
-import type { AppData, Bill, DayAttendance, DeductionDecision, Employee, InventoryRow, StockMovement, TransactionItem, Voucher, VoucherLine } from '../types';
+import type { AppData, Bill, DayAttendance, DeductionDecision, Employee, InventoryRow, Receipt, StockMovement, Supply, TransactionItem, Voucher, VoucherLine } from '../types';
 
 export const uid = (prefix = 'id') => `${prefix}-${crypto.randomUUID()}`;
 export const dateInputValue = (date = new Date()) => {
@@ -58,13 +58,35 @@ export const nextDocumentNo = (prefix: string, existing: string[]) => {
 };
 
 export const itemSubtotal = (item: TransactionItem) => item.quantity * item.rate;
-export const itemTax = (item: TransactionItem) => itemSubtotal(item) * (item.taxRate / 100);
+export const itemTax = (item: TransactionItem) => itemSubtotal(item) * ((item.taxRate || 0) / 100);
 export const itemsSubtotal = (items: TransactionItem[]) => items.reduce((sum, item) => sum + itemSubtotal(item), 0);
 export const itemsTax = (items: TransactionItem[]) => items.reduce((sum, item) => sum + itemTax(item), 0);
-export const billTotal = (bill: Bill) => itemsSubtotal(bill.items) + itemsTax(bill.items) + bill.otherCharges - bill.discount;
+
+/** Document-level GST: taxable amount is the item subtotal; GST is only applied when explicitly enabled. */
+export const taxableAmount = (items: TransactionItem[]) => itemsSubtotal(items);
+export const gstAmount = (items: TransactionItem[], gstEnabled: boolean, gstRate: number) =>
+  gstEnabled ? taxableAmount(items) * ((gstRate || 0) / 100) : 0;
+
+export const billTotal = (bill: Bill) =>
+  taxableAmount(bill.items) + gstAmount(bill.items, bill.gstEnabled, bill.gstRate) + bill.otherCharges - bill.discount;
+export const supplyTotal = (supply: Supply) =>
+  taxableAmount(supply.items) + gstAmount(supply.items, supply.gstEnabled, supply.gstRate);
+export const receiptTotal = (receipt: Receipt) => taxableAmount(receipt.items);
+
 export const paidForBill = (data: AppData, billId: string) =>
-  data.payments.filter((payment) => payment.billId === billId).reduce((sum, payment) => sum + payment.amount, 0);
+  data.payments.filter((payment) => payment.category === 'Bill' && payment.targetId === billId).reduce((sum, payment) => sum + payment.amount, 0);
 export const billBalance = (data: AppData, bill: Bill) => Math.max(0, billTotal(bill) - paidForBill(data, bill.id));
+
+export const paidForSupply = (data: AppData, supplyId: string) =>
+  data.payments.filter((payment) => payment.category === 'Supply' && payment.targetId === supplyId).reduce((sum, payment) => sum + payment.amount, 0);
+export const supplyBalance = (data: AppData, supply: Supply) => Math.max(0, supplyTotal(supply) - paidForSupply(data, supply.id));
+
+export const paidForReceipt = (data: AppData, receiptId: string) =>
+  data.payments.filter((payment) => payment.category === 'Receipt' && payment.targetId === receiptId).reduce((sum, payment) => sum + payment.amount, 0);
+export const receiptBalance = (data: AppData, receipt: Receipt) => Math.max(0, receiptTotal(receipt) - paidForReceipt(data, receipt.id));
+
+export const paidForEmployee = (data: AppData, employeeId: string) =>
+  data.payments.filter((payment) => payment.category === 'Employee' && payment.targetId === employeeId).reduce((sum, payment) => sum + payment.amount, 0);
 
 export const itemQuantitiesByMaterial = (items: TransactionItem[]) => items.reduce((map, item) => {
   map.set(item.materialId, (map.get(item.materialId) ?? 0) + item.quantity);
@@ -88,8 +110,8 @@ export const stockMovements = (data: AppData): StockMovement[] => {
     materialId: material.id,
     inward: material.openingStock,
     outward: 0,
-    rate: material.standardRate,
-    value: material.openingStock * material.standardRate,
+    rate: material.standardRate ?? 0,
+    value: material.openingStock * (material.standardRate ?? 0),
     note: material.location ? `Opening stock at ${material.location}` : 'Opening stock',
   }));
   data.receipts.filter((receipt) => receipt.destination === 'Central Store').forEach((receipt) => receipt.items.forEach((item) => rows.push({
@@ -154,7 +176,7 @@ export const inventoryRows = (data: AppData): InventoryRow[] => {
     const suppliedQty = matching.filter((movement) => movement.source === 'Issue').reduce((sum, movement) => sum + movement.outward, 0);
     const soldQty = matching.filter((movement) => movement.source === 'Client Invoice').reduce((sum, movement) => sum + movement.outward, 0);
     const availableQty = matching.reduce((sum, movement) => sum + movement.inward - movement.outward, 0);
-    return { ...material, receivedQty, purchasedQty, suppliedQty, soldQty, availableQty, stockValue: availableQty * material.standardRate };
+    return { ...material, receivedQty, purchasedQty, suppliedQty, soldQty, availableQty, stockValue: availableQty * (material.standardRate ?? 0) };
   });
 };
 
@@ -169,7 +191,7 @@ export const allVouchers = (data: AppData): Voucher[] => {
     if (account.category === 'Asset' || account.category === 'Expense') openingLines.push(line(account.id, account.openingBalance, 0, 'Ledger opening balance'));
     else openingLines.push(line(account.id, 0, account.openingBalance, 'Ledger opening balance'));
   });
-  const materialOpening = data.materials.reduce((sum, material) => sum + material.openingStock * material.standardRate, 0);
+  const materialOpening = data.materials.reduce((sum, material) => sum + material.openingStock * (material.standardRate ?? 0), 0);
   const supplierOpening = data.suppliers.reduce((sum, supplier) => sum + supplier.openingBalance, 0);
   if (materialOpening) openingLines.push(line('acc-inventory', materialOpening, 0, 'Material opening stock'));
   if (supplierOpening) openingLines.push(line('acc-payable', 0, supplierOpening, 'Supplier opening balances'));
@@ -181,7 +203,7 @@ export const allVouchers = (data: AppData): Voucher[] => {
 
   data.bills.forEach((bill) => {
     const subtotal = itemsSubtotal(bill.items);
-    const tax = itemsTax(bill.items);
+    const tax = gstAmount(bill.items, bill.gstEnabled, bill.gstRate);
     const total = billTotal(bill);
     const lines: VoucherLine[] = [];
     if (bill.type === 'Purchase') {
@@ -205,7 +227,7 @@ export const allVouchers = (data: AppData): Voucher[] => {
         lines.push(line('acc-inventory', 0, cost, 'Inventory issued through invoice'));
       }
     }
-    vouchers.push({ id: `auto-${bill.id}`, voucherNo: bill.billNo, type: bill.type === 'Purchase' ? 'Debit Note' : 'Credit Note', date: bill.date, partyName: bill.partyName, reference: bill.referenceNo, narration: bill.notes || `${bill.type} invoice posting`, lines: cleanLines(lines), sourceType: 'Bill', sourceId: bill.id, createdAt: bill.createdAt });
+    vouchers.push({ id: `auto-${bill.id}`, voucherNo: bill.billNo, type: bill.type === 'Purchase' ? 'Debit Note' : 'Credit Note', date: bill.date, partyName: bill.partyName, reference: bill.referenceNo ?? '', narration: bill.notes || `${bill.type} invoice posting`, lines: cleanLines(lines), sourceType: 'Bill', sourceId: bill.id, createdAt: bill.createdAt });
   });
 
   data.supplies.forEach((supply) => {
@@ -215,15 +237,21 @@ export const allVouchers = (data: AppData): Voucher[] => {
     }, 0);
     if (!value) return;
     const site = data.sites.find((candidate) => candidate.id === supply.siteId);
-    vouchers.push({ id: `auto-${supply.id}`, voucherNo: supply.issueNo, type: 'Journal', date: supply.date, partyName: site?.name ?? '', reference: supply.vehicleNo, narration: supply.notes || 'Material issued to site', lines: [line('acc-site-expense', value, 0, 'Site consumption'), line('acc-inventory', 0, value, 'Inventory issued')], sourceType: 'Manual', sourceId: supply.id, createdAt: supply.createdAt });
+    vouchers.push({ id: `auto-${supply.id}`, voucherNo: supply.issueNo, type: 'Journal', date: supply.date, partyName: site?.name ?? '', reference: supply.issueNo, narration: supply.notes || 'Material issued to site', lines: [line('acc-site-expense', value, 0, 'Site consumption'), line('acc-inventory', 0, value, 'Inventory issued')], sourceType: 'Manual', sourceId: supply.id, createdAt: supply.createdAt });
   });
 
   data.payments.forEach((payment) => {
     const cashAccount = payment.mode === 'Cash' ? 'acc-cash' : 'acc-bank';
-    const lines = payment.direction === 'Paid'
-      ? [line('acc-payable', payment.amount, 0, payment.partyName), line(cashAccount, 0, payment.amount, payment.mode)]
-      : [line(cashAccount, payment.amount, 0, payment.mode), line('acc-receivable', 0, payment.amount, payment.partyName)];
-    vouchers.push({ id: `auto-${payment.id}`, voucherNo: payment.paymentNo, type: payment.direction === 'Paid' ? 'Payment' : 'Receipt', date: payment.date, partyName: payment.partyName, reference: payment.reference, narration: payment.notes, lines, sourceType: 'Payment', sourceId: payment.id, createdAt: payment.createdAt });
+    const counterAccount = payment.category === 'Employee' ? 'acc-wages-expense'
+      : payment.category === 'Receipt' ? 'acc-payable'
+      : payment.category === 'Supply' ? 'acc-receivable'
+      : payment.direction === 'Paid' ? 'acc-payable' : 'acc-receivable';
+    const lines = payment.category === 'Employee'
+      ? [line(counterAccount, payment.amount, 0, payment.partyName), line(cashAccount, 0, payment.amount, payment.mode)]
+      : payment.direction === 'Paid'
+        ? [line(counterAccount, payment.amount, 0, payment.partyName), line(cashAccount, 0, payment.amount, payment.mode)]
+        : [line(cashAccount, payment.amount, 0, payment.mode), line(counterAccount, 0, payment.amount, payment.partyName)];
+    vouchers.push({ id: `auto-${payment.id}`, voucherNo: payment.paymentNo, type: payment.category === 'Employee' ? 'Payment' : payment.direction === 'Paid' ? 'Payment' : 'Receipt', date: payment.date, partyName: payment.partyName, reference: payment.reference, narration: payment.notes || `${payment.category} payment`, lines, sourceType: 'Payment', sourceId: payment.id, createdAt: payment.createdAt });
   });
 
   return [...vouchers, ...data.vouchers].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
@@ -365,3 +393,62 @@ export const attendanceMixFor = (data: AppData, employees: Employee[], year: num
   const s = summarizeAttendance(data, employee.id, year, month);
   return { present: acc.present + s.presentDays, half: acc.half + s.halfDays, weekOff: acc.weekOff + s.weekOffs, absent: acc.absent + s.absentDays };
 }, { present: 0, half: 0, weekOff: 0, absent: 0 });
+
+// ── Weekly payroll (Mesthri, Electrician, Tile Worker, Painter, and Labor opting for weekly pay) ──
+export interface DateParts { year: number; month: number; day: number; }
+
+export const toDateParts = (date: Date): DateParts => ({ year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate() });
+
+/** Returns the Monday on or before the given ISO date string. */
+export const startOfWeek = (isoDate: string): Date => {
+  const date = isoDate ? new Date(`${isoDate}T00:00:00`) : new Date();
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  return date;
+};
+
+export const weekDateParts = (weekStartIso: string): DateParts[] => {
+  const start = startOfWeek(weekStartIso);
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return toDateParts(date);
+  });
+};
+
+export const weekLabel = (weekStartIso: string) => {
+  const parts = weekDateParts(weekStartIso);
+  const first = parts[0];
+  const last = parts[6];
+  const format = (part: DateParts) => new Date(part.year, part.month - 1, part.day).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  return `${format(first)} – ${format(last)}, ${last.year}`;
+};
+
+export const summarizeAttendanceForDates = (data: AppData, employeeId: string, dates: DateParts[]): MonthAttendanceSummary => {
+  let presentDays = 0, halfDays = 0, weekOffs = 0, absentDays = 0;
+  dates.forEach((part) => {
+    const entry = data.attendance[attendanceKey(employeeId, part.year, part.month, part.day)];
+    if (!entry) return;
+    if (entry.woff) weekOffs++;
+    else if (entry.half) halfDays++;
+    else if (entry.present) presentDays++;
+    else if (entry.absent) absentDays++;
+  });
+  const workingDays = presentDays + halfDays + weekOffs + absentDays;
+  const payableDays = presentDays + halfDays * 0.5;
+  return { presentDays, halfDays, weekOffs, absentDays, workingDays, payableDays };
+};
+
+export const calcEmployeeSalaryForDates = (data: AppData, employee: Employee, dates: DateParts[], decision: DeductionDecision): EmployeeSalaryBreakdown => {
+  const attendance = summarizeAttendanceForDates(data, employee.id, dates);
+  const perDay = employee.grossSalary / dates.length;
+  const earned = Math.round(perDay * attendance.payableDays);
+  const outstandingAdvance = data.salaryAdvances.filter((advance) => advance.employeeId === employee.id && !advance.cleared).reduce((sum, advance) => sum + advance.amount, 0);
+  const advanceDeduction = decision.deductAdvance ? Math.min(outstandingAdvance, earned) : 0;
+  const otherDeduction = decision.deductOther ? employee.otherDeduction : 0;
+  const totalDeductions = advanceDeduction + otherDeduction;
+  return { perDay, earned, advanceDeduction, otherDeduction, totalDeductions, net: Math.max(0, earned - totalDeductions) };
+};
+
+export const isWeeklyOnlyBranch = (branch: Employee['branch']) => branch === 'Mesthri' || branch === 'Electrician' || branch === 'Tile Worker' || branch === 'Painter';
