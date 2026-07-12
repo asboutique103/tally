@@ -175,7 +175,7 @@ export interface AuditEntry {
   details: string;
 }
 
-export type StaffBranch = 'Head Office' | 'Site' | 'Store' | 'Admin' | 'Mesthri' | 'Electrician' | 'Tile Worker' | 'Painter' | 'Labor';
+export type StaffBranch = 'Mesthri' | 'Electrician' | 'Tile Worker' | 'Painter' | 'Labor';
 export type PayCycle = 'Weekly' | 'Monthly';
 
 export interface Employee {
