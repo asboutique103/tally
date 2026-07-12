@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { loadLocalData, loadPersistedData, resetLocalData, savePersistedData } from '../lib/storage';
-import { today, uid } from '../lib/helpers';
+import { loadPersistedData, savePersistedData } from '../lib/storage';
+import { seedData } from '../data/seed';
+import { billTotal, today, uid } from '../lib/helpers';
 import { attendanceKey, defaultDeductionDecision } from '../lib/helpers';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from './AuthContext';
@@ -9,6 +10,8 @@ import type { AppData, AuditEntry, Bill, DayAttendance, DeductionDecision, Emplo
 interface AppContextValue {
   data: AppData;
   setData: React.Dispatch<React.SetStateAction<AppData>>;
+  cloudLoaded: boolean;
+  syncError: string | null;
   upsertSupplier: (supplier: Supplier) => void;
   deleteSupplier: (id: string) => void;
   upsertSite: (site: Site) => void;
@@ -45,15 +48,16 @@ const audit = (actor: string, action: AuditEntry['action'], module: string, docu
 });
 
 const recomputeBillStatuses = (data: AppData): Bill[] => data.bills.map((bill) => {
-  const total = bill.items.reduce((sum, item) => sum + item.quantity * item.rate * (1 + item.taxRate / 100), 0) + bill.otherCharges - bill.discount;
+  const total = billTotal(bill);
   const paid = data.payments.filter((entry) => entry.category === 'Bill' && entry.targetId === bill.id).reduce((sum, entry) => sum + entry.amount, 0);
   const status = paid >= total && total > 0 ? 'Paid' as const : paid > 0 ? 'Partially Paid' as const : bill.dueDate < today() ? 'Overdue' as const : 'Unpaid' as const;
   return { ...bill, status };
 });
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [data, setData] = useState<AppData>(() => loadLocalData());
+  const [data, setData] = useState<AppData>(() => structuredClone(seedData));
   const [cloudLoaded, setCloudLoaded] = useState(!isSupabaseConfigured);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const cloudVersion = useRef<number | null>(null);
   const lastSavedSnapshot = useRef('');
   const { isAuthenticated, loading, sessionToken, username } = useAuth();
@@ -71,6 +75,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     let cancelled = false;
     setCloudLoaded(false);
+    setSyncError(null);
     loadPersistedData(sessionToken).then((loaded) => {
       if (cancelled) return;
       cloudVersion.current = loaded.version;
@@ -78,8 +83,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setData(loaded.data);
       setCloudLoaded(true);
     }).catch((error) => {
-      console.error('Unable to initialize Supabase workspace', error);
-      if (!cancelled) setCloudLoaded(false);
+      console.error('Unable to load Supabase workspace', error);
+      if (!cancelled) setSyncError(error instanceof Error ? error.message : 'Unable to load your workspace from Supabase.');
     });
 
     return () => { cancelled = true; };
@@ -92,20 +97,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const handle = window.setTimeout(() => {
       void savePersistedData(data, sessionToken, cloudVersion.current).then((result) => {
         if (!result.ok) {
-          console.warn(result.message ?? 'Cloud workspace changed before this save.');
+          setSyncError(result.message ?? 'This change did not save to Supabase because the workspace changed elsewhere. Reloading the latest version.');
           if (sessionToken) {
             void loadPersistedData(sessionToken).then((loaded) => {
               cloudVersion.current = loaded.version;
               lastSavedSnapshot.current = JSON.stringify(loaded.data);
               setData(loaded.data);
+            }).catch((error) => {
+              console.error('Unable to reload Supabase workspace after a failed save', error);
+              setSyncError(error instanceof Error ? error.message : 'Unable to reload your workspace from Supabase.');
             });
           }
           return;
         }
+        setSyncError(null);
         cloudVersion.current = result.version;
         lastSavedSnapshot.current = snapshot;
       }).catch((error) => {
         console.error('Unable to save Supabase workspace', error);
+        setSyncError(error instanceof Error ? error.message : 'Unable to save your changes to Supabase. They will be retried.');
       });
     }, 350);
     return () => window.clearTimeout(handle);
@@ -116,6 +126,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AppContextValue>(() => ({
     data,
     setData,
+    cloudLoaded,
+    syncError,
     upsertSupplier: (supplier) => mutate((current) => ({ ...current, suppliers: upsert(current.suppliers, supplier), auditLog: [audit(actor, current.suppliers.some((item) => item.id === supplier.id) ? 'Updated' : 'Created', 'Suppliers', supplier.code, supplier.name), ...current.auditLog] })),
     deleteSupplier: (id) => mutate((current) => { if (current.receipts.some((receipt) => receipt.supplierId === id) || current.bills.some((bill) => bill.supplierId === id)) return current; const item = current.suppliers.find((candidate) => candidate.id === id); return { ...current, suppliers: current.suppliers.filter((candidate) => candidate.id !== id), auditLog: [audit(actor, 'Deleted', 'Suppliers', item?.code ?? id, item?.name ?? ''), ...current.auditLog] }; }),
     upsertSite: (site) => mutate((current) => ({ ...current, sites: upsert(current.sites, site), auditLog: [audit(actor, current.sites.some((item) => item.id === site.id) ? 'Updated' : 'Created', 'Sites', site.code, site.name), ...current.auditLog] })),
@@ -140,16 +152,53 @@ export function AppProvider({ children }: { children: ReactNode }) {
     addSalaryAdvance: (advance) => mutate((current) => ({ ...current, salaryAdvances: [advance, ...current.salaryAdvances], auditLog: [audit(actor, 'Created', 'Staff & Attendance', advance.id, `Advance of ${advance.amount} recorded`), ...current.auditLog] })),
     clearSalaryAdvance: (id) => mutate((current) => ({ ...current, salaryAdvances: current.salaryAdvances.map((advance) => advance.id === id ? { ...advance, cleared: true } : advance), auditLog: [audit(actor, 'Updated', 'Staff & Attendance', id, 'Advance marked as cleared'), ...current.auditLog] })),
     resetWorkspace: () => {
-      const reset = resetLocalData();
+      const reset = structuredClone(seedData);
       reset.auditLog = [audit(actor, 'Reset', 'Company', 'RESET', 'Workspace cleared to blank defaults'), ...reset.auditLog];
       setData(reset);
       void savePersistedData(reset, sessionToken, cloudVersion.current).then((result) => {
-        if (result.ok) cloudVersion.current = result.version;
+        if (result.ok) { cloudVersion.current = result.version; lastSavedSnapshot.current = JSON.stringify(reset); setSyncError(null); }
+        else setSyncError(result.message ?? 'Unable to save the reset workspace to Supabase.');
+      }).catch((error) => {
+        console.error('Unable to save reset workspace', error);
+        setSyncError(error instanceof Error ? error.message : 'Unable to save the reset workspace to Supabase.');
       });
     },
-  }), [actor, data, mutate, sessionToken]);
+  }), [actor, cloudLoaded, data, mutate, sessionToken, syncError]);
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  if (isSupabaseConfigured && !cloudLoaded) {
+    if (syncError) {
+      return (
+        <div className="workspace-gate">
+          <div className="workspace-gate-card">
+            <strong>Couldn't load your workspace</strong>
+            <p>{syncError}</p>
+            <button className="button primary" onClick={() => window.location.reload()}>Retry</button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="workspace-gate">
+        <div className="workspace-gate-card">
+          <span className="workspace-gate-spinner" />
+          <strong>Loading your workspace…</strong>
+          <p>Fetching the latest data from Supabase.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <AppContext.Provider value={value}>
+      {syncError && (
+        <div className="sync-error-banner">
+          <span>⚠ {syncError}</span>
+          <button onClick={() => setSyncError(null)} aria-label="Dismiss">✕</button>
+        </div>
+      )}
+      {children}
+    </AppContext.Provider>
+  );
 }
 
 export const useApp = () => {
