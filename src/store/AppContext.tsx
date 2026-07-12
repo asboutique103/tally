@@ -165,7 +165,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
   }), [actor, cloudLoaded, data, mutate, sessionToken, syncError]);
 
-  if (isSupabaseConfigured && !cloudLoaded) {
+  if (isSupabaseConfigured && isAuthenticated && !cloudLoaded) {
     if (syncError) {
       return (
         <div className="workspace-gate">
