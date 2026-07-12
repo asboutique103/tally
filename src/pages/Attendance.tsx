@@ -8,17 +8,17 @@ import { SearchBar } from '../components/SearchBar';
 import { StatCard } from '../components/StatCard';
 import {
   attendanceKey, attendanceMixFor, branchAnalytics, calcEmployeeSalary, calcEmployeeSalaryForDates, currency, daysInMonth,
-  defaultDayAttendance, departmentAnalytics, downloadCsv, isWeeklyOnlyBranch, monthLabel, number, outstandingAdvanceFor,
+  defaultDayAttendance, departmentAnalytics, downloadCsv, monthLabel, number, outstandingAdvanceFor,
   summarizeAttendance, summarizeAttendanceForDates, today, uid, weekDateParts, weekLabel,
 } from '../lib/helpers';
 import { useApp } from '../store/AppContext';
 import type { DayAttendance, DeductionDecision, Employee, PayCycle, StaffBranch } from '../types';
 
-const branches: StaffBranch[] = ['Head Office', 'Site', 'Store', 'Admin', 'Mesthri', 'Electrician', 'Tile Worker', 'Painter', 'Labor'];
+const branches: StaffBranch[] = ['Mesthri', 'Electrician', 'Tile Worker', 'Painter', 'Labor'];
 const CHART_COLORS = ['#5c5ee5', '#2fb7a3', '#f5a524', '#e5544f', '#7c3aed', '#0ea5e9'];
 
 const emptyEmployee = (): Employee => ({
-  id: uid('emp'), code: '', name: '', branch: 'Site', department: '', payCycle: 'Monthly', grossSalary: 0,
+  id: uid('emp'), code: '', name: '', branch: 'Labor', department: '', payCycle: 'Monthly', grossSalary: 0,
   salaryAdvance: 0, otherDeduction: 0, accountNumber: '', bankName: '',
   ifscCode: '', status: 'Active', createdAt: new Date().toISOString(),
 });
@@ -503,30 +503,15 @@ export function Attendance() {
           <div className="form-grid three">
             <label><span>Employee code *</span><input required value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value })} /></label>
             <label className="span-2"><span>Full name *</span><input required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
-            <label><span>Branch</span><select value={draft.branch} onChange={(e) => {
-              const branch = e.target.value as StaffBranch;
-              const forcedWeekly = isWeeklyOnlyBranch(branch);
-              setDraft({ ...draft, branch, payCycle: forcedWeekly ? 'Weekly' : branch === 'Labor' ? draft.payCycle : 'Monthly' });
-            }}>{branches.map((b) => <option key={b}>{b}</option>)}</select></label>
+            <label><span>Branch</span><select value={draft.branch} onChange={(e) => setDraft({ ...draft, branch: e.target.value as StaffBranch })}>{branches.map((b) => <option key={b}>{b}</option>)}</select></label>
             <label><span>Department</span><input value={draft.department} onChange={(e) => setDraft({ ...draft, department: e.target.value })} placeholder="Site engineering, Stores..." /></label>
-            <label>
-              <span>Pay cycle</span>
-              {isWeeklyOnlyBranch(draft.branch) ? (
-                <input disabled value="Weekly (fixed for this role)" />
-              ) : draft.branch === 'Labor' ? (
-                <select value={draft.payCycle} onChange={(e) => setDraft({ ...draft, payCycle: e.target.value as PayCycle })}><option>Weekly</option><option>Monthly</option></select>
-              ) : (
-                <input disabled value="Monthly" />
-              )}
-            </label>
+            <label><span>Pay cycle</span><select value={draft.payCycle} onChange={(e) => setDraft({ ...draft, payCycle: e.target.value as PayCycle })}><option>Weekly</option><option>Monthly</option></select></label>
             <label><span>{draft.payCycle === 'Weekly' ? 'Weekly wage *' : 'Gross salary (monthly) *'}</span><input type="number" min="0" required value={draft.grossSalary} onChange={(e) => setDraft({ ...draft, grossSalary: Number(e.target.value) })} /></label>
             <label><span>Other deduction</span><input type="number" min="0" value={draft.otherDeduction} onChange={(e) => setDraft({ ...draft, otherDeduction: Number(e.target.value) })} /></label>
             <label><span>Bank name</span><input value={draft.bankName ?? ''} onChange={(e) => setDraft({ ...draft, bankName: e.target.value })} /></label>
             <label><span>Account number</span><input value={draft.accountNumber ?? ''} onChange={(e) => setDraft({ ...draft, accountNumber: e.target.value })} /></label>
             <label><span>IFSC code</span><input value={draft.ifscCode ?? ''} onChange={(e) => setDraft({ ...draft, ifscCode: e.target.value })} /></label>
           </div>
-          {draft.branch === 'Labor' && <div className="alert info-alert">Labor staff can be paid weekly or monthly — pick whichever this worker has agreed to.</div>}
-          {isWeeklyOnlyBranch(draft.branch) && <div className="alert info-alert">Mesthri, Electrician, Tile Worker and Painter are always paid on a weekly cycle.</div>}
           <div className="form-actions"><button type="button" className="button secondary" onClick={() => setModalOpen(false)}>Cancel</button><button className="button primary">Save employee</button></div>
         </form>
       </Modal>
