@@ -5,10 +5,10 @@ import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
 import { TransactionItemsEditor } from '../components/TransactionItemsEditor';
 import {
-  amountInIndianWords, billBalance, billTotal, currency, downloadCsv, inventoryRows,
-  itemsSubtotal, itemsTax, nextDocumentNo, stockShortage, today, uid,
+  amountInIndianWords, billBalance, billTotal, currency, downloadCsv, gstAmount, inventoryRows,
+  nextDocumentNo, stockShortage, taxableAmount, today, uid,
 } from '../lib/helpers';
-import { cleanText, hasDuplicate, hasValidItems, isFilled, isSameOrAfter, isValidGstin } from '../lib/validation';
+import { cleanText, hasValidItems, hasDuplicate, isFilled, isSameOrAfter, isValidGstin } from '../lib/validation';
 import { useApp } from '../store/AppContext';
 import type { Bill, BillType } from '../types';
 
@@ -37,9 +37,11 @@ export function Bills() {
       ewayBillNo: '',
       vehicleNo: '',
       referenceNo: '',
-      items: [{ id: uid('bi'), materialId: first?.id ?? '', quantity: 1, rate: first?.standardRate ?? 0, taxRate: first?.taxRate ?? data.settings.defaultTaxRate }],
+      items: [{ id: uid('bi'), materialId: first?.id ?? '', quantity: 1, rate: first?.standardRate ?? 0, taxRate: 0 }],
       discount: 0,
       otherCharges: 0,
+      gstEnabled: false,
+      gstRate: data.settings.defaultTaxRate || 18,
       notes: '',
       status: 'Unpaid',
       inventoryPosting: 'Auto Post',
@@ -55,7 +57,7 @@ export function Bills() {
   const [error, setError] = useState('');
 
   const filtered = useMemo(
-    () => data.bills.filter((bill) => (filter === 'All' || bill.type === filter) && `${bill.billNo} ${bill.partyName} ${bill.referenceNo} ${bill.status}`.toLowerCase().includes(query.toLowerCase())),
+    () => data.bills.filter((bill) => (filter === 'All' || bill.type === filter) && `${bill.billNo} ${bill.partyName} ${bill.status}`.toLowerCase().includes(query.toLowerCase())),
     [data.bills, filter, query],
   );
 
@@ -71,26 +73,14 @@ export function Bills() {
       deliveryAddress: cleanText(draft.deliveryAddress),
       ewayBillNo: cleanText(draft.ewayBillNo).toUpperCase(),
       vehicleNo: cleanText(draft.vehicleNo).toUpperCase(),
-      referenceNo: cleanText(draft.referenceNo).toUpperCase(),
       notes: cleanText(draft.notes),
       discount: draft.discount || 0,
       otherCharges: draft.otherCharges || 0,
+      gstRate: draft.gstEnabled ? (draft.gstRate || 0) : 0,
     };
 
-    if (!isFilled(next.billNo) || !isFilled(next.date) || !isFilled(next.dueDate) || !isFilled(next.referenceNo) || !isFilled(next.partyName) || !isFilled(next.partyAddress) || !isFilled(next.state)) {
-      setError('Bill number, dates, reference / PO, party name, party address and state are mandatory.');
-      return;
-    }
-    if (next.type === 'Purchase' && !isFilled(next.supplierId)) {
-      setError('Select a supplier for a purchase bill.');
-      return;
-    }
-    if (next.type === 'Client' && !isFilled(next.siteId)) {
-      setError('Select the project / client for a client invoice.');
-      return;
-    }
-    if (next.type === 'Client' && !isFilled(next.deliveryAddress)) {
-      setError('Delivery address is mandatory for client invoices.');
+    if (!isFilled(next.billNo) || !isFilled(next.date) || !isFilled(next.dueDate) || !isFilled(next.partyName) || !isFilled(next.partyAddress) || !isFilled(next.state)) {
+      setError('Bill number, dates, party name, party address and state are mandatory.');
       return;
     }
     if (!isSameOrAfter(next.dueDate, next.date)) {
@@ -98,19 +88,15 @@ export function Bills() {
       return;
     }
     const partyGstin = next.partyGstin ?? '';
-    if (!isFilled(partyGstin) || !isValidGstin(partyGstin, true)) {
+    if (isFilled(partyGstin) && !isValidGstin(partyGstin, true)) {
       setError('Enter a valid party GSTIN, or use URP for an unregistered party.');
       return;
     }
     if (!hasValidItems(next.items)) {
-      setError('Add at least one material line with material, quantity, rate and tax.');
+      setError('Add at least one material line with material, quantity and rate.');
       return;
     }
-    if (next.items.some((item) => !data.materials.find((material) => material.id === item.materialId)?.hsnCode)) {
-      setError('Every billed material must have an HSN code in the material master.');
-      return;
-    }
-    if (next.discount > itemsSubtotal(next.items) + next.otherCharges) {
+    if (next.discount > taxableAmount(next.items) + next.otherCharges) {
       setError('Discount cannot be greater than subtotal plus other charges.');
       return;
     }
@@ -160,7 +146,7 @@ export function Bills() {
       <PageHeader
         eyebrow="Accounts receivable & payable"
         title="Bills & invoices"
-        description="Create supplier purchase bills and client/site invoices with tax, discounts, due dates and payment status."
+        description="Create supplier purchase bills and client/site invoices with optional GST, discounts, due dates and payment status."
         actions={(
           <>
             <button className="button secondary" onClick={() => downloadCsv('bills.csv', filtered.map((bill) => ({
@@ -170,9 +156,7 @@ export function Bills() {
               DueDate: bill.dueDate,
               Party: bill.partyName,
               PartyGSTIN: bill.partyGstin ?? '',
-              EwayBillNo: bill.ewayBillNo ?? '',
-              VehicleNo: bill.vehicleNo ?? '',
-              Reference: bill.referenceNo,
+              GST: bill.gstEnabled ? `${bill.gstRate}%` : 'No GST',
               Total: billTotal(bill),
               Balance: billBalance(data, bill),
               Status: bill.status,
@@ -184,12 +168,12 @@ export function Bills() {
 
       <section className="panel table-panel">
         <div className="table-toolbar split-toolbar">
-          <SearchBar value={query} onChange={setQuery} placeholder="Search bill, party, reference or status..." />
+          <SearchBar value={query} onChange={setQuery} placeholder="Search bill, party or status..." />
           <div className="segmented">{(['All', 'Purchase', 'Client'] as const).map((value) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{value}</button>)}</div>
         </div>
         <div className="table-scroll">
           <table className="data-table">
-            <thead><tr><th>Bill</th><th>Type / date</th><th>Party</th><th>Reference</th><th>Total</th><th>Paid</th><th>Balance</th><th>Stock posting</th><th>Status</th><th /></tr></thead>
+            <thead><tr><th>Bill</th><th>Type / date</th><th>Party</th><th>GST</th><th>Total</th><th>Paid</th><th>Balance</th><th>Stock posting</th><th>Status</th><th /></tr></thead>
             <tbody>{filtered.map((bill) => {
               const balance = billBalance(data, bill);
               const total = billTotal(bill);
@@ -198,7 +182,7 @@ export function Bills() {
                   <td><strong>{bill.billNo}</strong><span>Due {formatDate(bill.dueDate)}</span></td>
                   <td><span className={`soft-badge ${bill.type === 'Purchase' ? 'warning-badge' : ''}`}>{bill.type}</span><span>{formatDate(bill.date)}</span></td>
                   <td><strong>{bill.partyName}</strong><span>{bill.partyGstin ? `GSTIN ${bill.partyGstin}` : bill.type === 'Purchase' ? 'Supplier payable' : 'Client receivable'}</span></td>
-                  <td>{bill.referenceNo || '—'}</td>
+                  <td><span className={`soft-badge ${bill.gstEnabled ? '' : 'warning-badge'}`}>{bill.gstEnabled ? `${bill.gstRate}%` : 'No GST'}</span></td>
                   <td><strong>{currency(total)}</strong></td>
                   <td>{currency(total - balance)}</td>
                   <td><strong className={balance > 0 ? 'negative-text' : 'positive-text'}>{currency(balance)}</strong></td>
@@ -225,26 +209,36 @@ export function Bills() {
             <label><span>Invoice date *</span><input required type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} /></label>
             <label><span>Due date *</span><input required type="date" value={draft.dueDate} onChange={(event) => setDraft({ ...draft, dueDate: event.target.value })} /></label>
             {draft.type === 'Purchase' ? (
-              <label className="span-2"><span>Supplier *</span><select required value={draft.supplierId ?? ''} onChange={(event) => { const supplier = data.suppliers.find((item) => item.id === event.target.value); setDraft({ ...draft, supplierId: event.target.value, partyName: supplier?.name ?? '', partyAddress: supplier?.address ?? '', partyGstin: supplier?.gstin ?? '' }); }}><option value="">Select supplier</option>{data.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
+              <label className="span-2"><span>Supplier (optional — pick to auto-fill, or type party name manually below)</span><select value={draft.supplierId ?? ''} onChange={(event) => { const supplier = data.suppliers.find((item) => item.id === event.target.value); setDraft({ ...draft, supplierId: event.target.value || undefined, partyName: supplier?.name ?? draft.partyName, partyAddress: supplier?.address ?? draft.partyAddress, partyGstin: supplier?.gstin ?? draft.partyGstin }); }}><option value="">Manual entry — no saved supplier</option>{data.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
             ) : (
-              <label className="span-2"><span>Project / client *</span><select required value={draft.siteId ?? ''} onChange={(event) => { const site = data.sites.find((item) => item.id === event.target.value); setDraft({ ...draft, siteId: event.target.value, partyName: site?.clientName || site?.name || '', partyAddress: site?.location ?? '', deliveryAddress: site?.location ?? '' }); }}><option value="">Select project</option>{data.sites.map((site) => <option key={site.id} value={site.id}>{site.name} — {site.clientName}</option>)}</select></label>
+              <label className="span-2"><span>Project / client (optional — pick to auto-fill, or type party name manually below)</span><select value={draft.siteId ?? ''} onChange={(event) => { const site = data.sites.find((item) => item.id === event.target.value); setDraft({ ...draft, siteId: event.target.value || undefined, partyName: site?.clientName || site?.name || draft.partyName, partyAddress: site?.location ?? draft.partyAddress, deliveryAddress: site?.location ?? draft.deliveryAddress }); }}><option value="">Manual entry — no saved site</option>{data.sites.map((site) => <option key={site.id} value={site.id}>{site.name} — {site.clientName}</option>)}</select></label>
             )}
-            <label><span>Reference / PO no. *</span><input required value={draft.referenceNo} onChange={(event) => setDraft({ ...draft, referenceNo: event.target.value })} placeholder="Invoice / PO / RA bill" /></label>
+            <label className="span-2"><span>Party / client name *</span><input required value={draft.partyName} onChange={(event) => setDraft({ ...draft, partyName: event.target.value })} placeholder="Type or edit the billed party's name" /></label>
             <label className="span-2"><span>Party address *</span><textarea required rows={3} value={draft.partyAddress ?? ''} onChange={(event) => setDraft({ ...draft, partyAddress: event.target.value })} /></label>
-            <label><span>Party GSTIN / URP *</span><input required maxLength={15} value={draft.partyGstin ?? ''} onChange={(event) => setDraft({ ...draft, partyGstin: event.target.value.toUpperCase() })} placeholder="GSTIN or URP" /></label>
+            <label><span>Party GSTIN / URP</span><input maxLength={15} value={draft.partyGstin ?? ''} onChange={(event) => setDraft({ ...draft, partyGstin: event.target.value.toUpperCase() })} placeholder="GSTIN, URP, or leave blank" /></label>
             <label><span>State *</span><input required value={draft.state ?? ''} onChange={(event) => setDraft({ ...draft, state: event.target.value.toUpperCase() })} placeholder="TAMIL NADU" /></label>
             <label><span>E-way bill no.</span><input value={draft.ewayBillNo ?? ''} onChange={(event) => setDraft({ ...draft, ewayBillNo: event.target.value })} /></label>
             <label><span>Vehicle number</span><input value={draft.vehicleNo ?? ''} onChange={(event) => setDraft({ ...draft, vehicleNo: event.target.value.toUpperCase() })} /></label>
             <label className="span-2"><span>Delivered to {draft.type === 'Client' ? '*' : ''}</span><input required={draft.type === 'Client'} value={draft.deliveryAddress ?? ''} onChange={(event) => setDraft({ ...draft, deliveryAddress: event.target.value })} /></label>
           </div>
 
-          <TransactionItemsEditor materials={data.materials} items={draft.items} onChange={(items) => setDraft({ ...draft, items })} />
+          <TransactionItemsEditor materials={data.materials} items={draft.items} onChange={(items) => setDraft({ ...draft, items })} showTax={false} />
           <div className="form-grid three">
             <label><span>Discount</span><input type="number" min="0" step="0.01" value={draft.discount} onChange={(event) => setDraft({ ...draft, discount: Number(event.target.value) })} /></label>
             <label><span>Other charges</span><input type="number" min="0" step="0.01" value={draft.otherCharges} onChange={(event) => setDraft({ ...draft, otherCharges: Number(event.target.value) })} /></label>
             <label><span>Stock posting</span><select value={draft.inventoryPosting} onChange={(event) => setDraft({ ...draft, inventoryPosting: event.target.value as Bill['inventoryPosting'] })}><option>Auto Post</option><option>Accounting Only</option></select><small>{draft.type === 'Purchase' ? 'Auto Post adds invoice quantities to central stock.' : 'Auto Post deducts invoice quantities from central stock.'}</small></label>
           </div>
-          <div className="document-total"><span>Subtotal {currency(itemsSubtotal(draft.items))}</span><span>Tax {currency(itemsTax(draft.items))}</span><span>Charges {currency(draft.otherCharges)}</span><span>Discount -{currency(draft.discount)}</span><strong>Grand total {currency(billTotal(draft))}</strong></div>
+          <div className="form-grid three">
+            <label className="toggle-label span-2"><input type="checkbox" checked={draft.gstEnabled} onChange={(event) => setDraft({ ...draft, gstEnabled: event.target.checked })} /><span><strong>Include GST on this bill</strong><small>Turn on to charge GST. Taxable amount and GST auto-calculate below.</small></span></label>
+            {draft.gstEnabled && <label><span>GST % *</span><input required type="number" min="0" step="0.01" value={draft.gstRate} onChange={(event) => setDraft({ ...draft, gstRate: Number(event.target.value) })} /></label>}
+          </div>
+          <div className="document-total">
+            <span>Taxable amount {currency(taxableAmount(draft.items))}</span>
+            {draft.gstEnabled && <span>GST {currency(gstAmount(draft.items, draft.gstEnabled, draft.gstRate))}</span>}
+            <span>Charges {currency(draft.otherCharges)}</span>
+            <span>Discount -{currency(draft.discount)}</span>
+            <strong>Grand total {currency(billTotal(draft))}</strong>
+          </div>
           <label><span>Notes / terms</span><textarea rows={3} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label>
           <div className="form-actions"><button type="button" className="button secondary" onClick={() => setOpen(false)}>Cancel</button><button className="button primary">Save bill</button></div>
         </form>
@@ -252,14 +246,14 @@ export function Bills() {
 
       <Modal open={Boolean(view)} title={view?.billNo ?? 'Bill'} subtitle="Print-ready invoice view" onClose={() => setView(null)} wide>
         {view && (() => {
-          const subtotal = itemsSubtotal(view.items);
-          const tax = itemsTax(view.items);
-          const rate = view.items[0]?.taxRate ?? data.settings.defaultTaxRate;
-          const halfRate = rate / 2;
+          const subtotal = taxableAmount(view.items);
+          const tax = gstAmount(view.items, view.gstEnabled, view.gstRate);
+          const halfRate = view.gstRate / 2;
           const grandTotal = billTotal(view);
           return (
             <div className="vmv-invoice">
               <div className="vmv-company-box">
+                <img src="/logo.png" alt="Company logo" className="vmv-logo" />
                 <h1>{data.settings.companyName}</h1>
                 <p>{data.settings.address}</p>
                 <div><strong>GST NO :</strong><span>{data.settings.gstin || '—'}</span><strong>PH NO –</strong><span>{data.settings.phone || '—'}</span></div>
@@ -280,7 +274,7 @@ export function Bills() {
                   <p><strong>GST INVOICE DATE</strong><span>: {formatDate(view.date)}</span></p>
                   <p><strong>VEHICLE NUMBER</strong><span>: {view.vehicleNo || '—'}</span></p>
                 </div>
-                <div className="vmv-state"><strong>STATE: {view.state || '—'}</strong><span><strong>PARTY-GSTIN :</strong> {view.partyGstin || '—'}</span></div>
+                <div className="vmv-state"><strong>STATE: {view.state || '—'}</strong><span><strong>PARTY-GSTIN :</strong> {view.partyGstin || 'URP'}</span></div>
               </div>
               <table className="vmv-items">
                 <thead><tr><th>SI.No</th><th>Particular</th><th>HSN CODE</th><th>Qty</th><th>Rate</th><th>Total<br />Amount</th></tr></thead>
@@ -301,11 +295,11 @@ export function Bills() {
                   {Array.from({ length: Math.max(0, 6 - view.items.length) }, (_, index) => <tr key={`blank-${index}`}><td>&nbsp;</td><td /><td /><td /><td /><td /></tr>)}
                 </tbody>
                 <tfoot>
-                  <tr><td colSpan={2} rowSpan={6} className="vmv-words"><strong>Amount in word Rupees:</strong> {amountInIndianWords(grandTotal)}</td><td /><td colSpan={2}><strong>Item Amount</strong></td><td><strong>{numberForInvoice(subtotal)}</strong></td></tr>
+                  <tr><td colSpan={2} rowSpan={view.gstEnabled ? 6 : 4} className="vmv-words"><strong>Amount in word Rupees:</strong> {amountInIndianWords(grandTotal)}</td><td /><td colSpan={2}><strong>Taxable Amount</strong></td><td><strong>{numberForInvoice(subtotal)}</strong></td></tr>
                   <tr><td /><td colSpan={2}><strong>Other Charges</strong></td><td><strong>{numberForInvoice(view.otherCharges)}</strong></td></tr>
                   <tr><td /><td colSpan={2}><strong>Discount</strong></td><td><strong>-{numberForInvoice(view.discount)}</strong></td></tr>
-                  <tr><td /><td colSpan={2}><strong>CGST@{numberForInvoice(halfRate)}%</strong></td><td><strong>{numberForInvoice(tax / 2)}</strong></td></tr>
-                  <tr><td /><td colSpan={2}><strong>SGST@{numberForInvoice(halfRate)}%</strong></td><td><strong>{numberForInvoice(tax / 2)}</strong></td></tr>
+                  {view.gstEnabled && <tr><td /><td colSpan={2}><strong>CGST@{numberForInvoice(halfRate)}%</strong></td><td><strong>{numberForInvoice(tax / 2)}</strong></td></tr>}
+                  {view.gstEnabled && <tr><td /><td colSpan={2}><strong>SGST@{numberForInvoice(halfRate)}%</strong></td><td><strong>{numberForInvoice(tax / 2)}</strong></td></tr>}
                   <tr><td /><td colSpan={2} className="vmv-grand"><strong>GRAND TOTAL</strong></td><td className="vmv-grand"><strong>{numberForInvoice(grandTotal)}</strong></td></tr>
                 </tfoot>
               </table>

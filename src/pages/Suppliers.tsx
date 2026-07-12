@@ -4,7 +4,7 @@ import { EmptyState } from '../components/EmptyState';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
-import { currency, downloadCsv, uid } from '../lib/helpers';
+import { billBalance, currency, downloadCsv, uid } from '../lib/helpers';
 import { cleanText, compactPhone, hasDuplicate, isFilled, isValidGstin, isValidIndianPhone, normalizeGstin } from '../lib/validation';
 import { useApp } from '../store/AppContext';
 import type { Supplier } from '../types';
@@ -36,9 +36,7 @@ export function Suppliers() {
   );
 
   const outstanding = (supplierId: string) =>
-    data.bills.filter((bill) => bill.supplierId === supplierId).reduce((sum, bill) =>
-      sum + bill.items.reduce((s, item) => s + item.quantity * item.rate * (1 + item.taxRate / 100), 0) + bill.otherCharges - bill.discount, 0)
-    - data.payments.filter((payment) => data.bills.some((bill) => bill.id === payment.billId && bill.supplierId === supplierId)).reduce((sum, payment) => sum + payment.amount, 0);
+    data.bills.filter((bill) => bill.supplierId === supplierId).reduce((sum, bill) => sum + billBalance(data, bill), 0);
 
   const requestDelete = (supplier: Supplier) => {
     const inUse = data.receipts.some((receipt) => receipt.supplierId === supplier.id)

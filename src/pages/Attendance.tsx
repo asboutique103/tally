@@ -7,23 +7,24 @@ import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
 import { StatCard } from '../components/StatCard';
 import {
-  attendanceKey, attendanceMixFor, branchAnalytics, calcEmployeeSalary, currency, daysInMonth,
-  defaultDayAttendance, departmentAnalytics, downloadCsv, monthLabel, number, outstandingAdvanceFor,
-  summarizeAttendance, today, uid,
+  attendanceKey, attendanceMixFor, branchAnalytics, calcEmployeeSalary, calcEmployeeSalaryForDates, currency, daysInMonth,
+  defaultDayAttendance, departmentAnalytics, downloadCsv, isWeeklyOnlyBranch, monthLabel, number, outstandingAdvanceFor,
+  summarizeAttendance, summarizeAttendanceForDates, today, uid, weekDateParts, weekLabel,
 } from '../lib/helpers';
 import { useApp } from '../store/AppContext';
-import type { DayAttendance, DeductionDecision, Employee, StaffBranch } from '../types';
+import type { DayAttendance, DeductionDecision, Employee, PayCycle, StaffBranch } from '../types';
 
-const branches: StaffBranch[] = ['Head Office', 'Site', 'Store', 'Admin'];
+const branches: StaffBranch[] = ['Head Office', 'Site', 'Store', 'Admin', 'Mesthri', 'Electrician', 'Tile Worker', 'Painter', 'Labor'];
 const CHART_COLORS = ['#5c5ee5', '#2fb7a3', '#f5a524', '#e5544f', '#7c3aed', '#0ea5e9'];
 
 const emptyEmployee = (): Employee => ({
-  id: uid('emp'), code: '', name: '', branch: 'Site', department: '', grossSalary: 0,
+  id: uid('emp'), code: '', name: '', branch: 'Site', department: '', payCycle: 'Monthly', grossSalary: 0,
   salaryAdvance: 0, otherDeduction: 0, accountNumber: '', bankName: '',
   ifscCode: '', status: 'Active', createdAt: new Date().toISOString(),
 });
 
 const currentYM = () => { const now = new Date(); return { year: now.getFullYear(), month: now.getMonth() + 1 }; };
+const mondayIso = (date = new Date()) => { const day = date.getDay(); const diff = day === 0 ? -6 : 1 - day; const monday = new Date(date); monday.setDate(date.getDate() + diff); return monday.toISOString().slice(0, 10); };
 
 function dayState(entry?: DayAttendance) {
   if (!entry) return 'blank';
@@ -41,6 +42,8 @@ export function Attendance() {
   const { data } = app;
   const [tab, setTab] = useState<'Attendance' | 'Salary' | 'Advances' | 'Employees' | 'Analytics'>('Attendance');
   const [{ year, month }, setYM] = useState(currentYM());
+  const [payCycleView, setPayCycleView] = useState<PayCycle>('Monthly');
+  const [weekStart, setWeekStart] = useState(mondayIso());
   const [query, setQuery] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [draft, setDraft] = useState<Employee>(emptyEmployee());
@@ -51,9 +54,18 @@ export function Attendance() {
 
   const total = daysInMonth(year, month);
   const label = monthLabel(year, month);
+  const weekParts = useMemo(() => weekDateParts(weekStart), [weekStart]);
+  const periodLabel = payCycleView === 'Weekly' ? weekLabel(weekStart) : label;
   const activeEmployees = data.employees.filter((e) => e.status === 'Active');
+  const cycleEmployees = activeEmployees.filter((e) => e.payCycle === payCycleView);
   const filtered = useMemo(
+    () => cycleEmployees.filter((e) => `${e.name} ${e.department} ${e.code}`.toLowerCase().includes(query.toLowerCase())),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cycleEmployees, query],
+  );
+  const allFiltered = useMemo(
     () => activeEmployees.filter((e) => `${e.name} ${e.department} ${e.code}`.toLowerCase().includes(query.toLowerCase())),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeEmployees, query],
   );
 
@@ -71,10 +83,26 @@ export function Attendance() {
     app.setAttendanceDay(emp.id, year, month, day, next);
   };
 
+  const cycleDatePart = (emp: Employee, part: { year: number; month: number; day: number }) => {
+    const key = attendanceKey(emp.id, part.year, part.month, part.day);
+    const state = dayState(data.attendance[key]);
+    let next: DayAttendance;
+    if (state === 'blank') next = { present: true, absent: false, half: false, woff: false };
+    else if (state === 'present') next = { present: false, absent: true, half: false, woff: false };
+    else if (state === 'absent') next = { present: false, absent: false, half: true, woff: false };
+    else if (state === 'half') next = { present: false, absent: false, half: false, woff: true };
+    else next = defaultDayAttendance();
+    app.setAttendanceDay(emp.id, part.year, part.month, part.day, next);
+  };
+
   const salaryRows = useMemo(
-    () => filtered.map((e) => ({ employee: e, breakdown: calcEmployeeSalary(data, e, year, month, getDecision(e.id)), attendance: summarizeAttendance(data, e.id, year, month) })),
+    () => filtered.map((e) => ({
+      employee: e,
+      breakdown: payCycleView === 'Weekly' ? calcEmployeeSalaryForDates(data, e, weekParts, getDecision(e.id)) : calcEmployeeSalary(data, e, year, month, getDecision(e.id)),
+      attendance: payCycleView === 'Weekly' ? summarizeAttendanceForDates(data, e.id, weekParts) : summarizeAttendance(data, e.id, year, month),
+    })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filtered, data, year, month],
+    [filtered, data, year, month, payCycleView, weekParts],
   );
 
   const salarySummary = salaryRows.reduce((acc, row) => ({
@@ -166,16 +194,28 @@ export function Attendance() {
         description="Mark daily attendance, track advances, and compute monthly payroll for every branch."
         actions={(
           <>
-            <select value={`${year}-${month}`} onChange={(e) => { const [y, m] = e.target.value.split('-').map(Number); setYM({ year: y, month: m }); }} className="month-select">
-              {monthOptions.map((m) => <option key={`${m.year}-${m.month}`} value={`${m.year}-${m.month}`}>{monthLabel(m.year, m.month)}</option>)}
-            </select>
+            <div className="segmented">
+              <button className={payCycleView === 'Monthly' ? 'active' : ''} onClick={() => setPayCycleView('Monthly')}>Monthly staff</button>
+              <button className={payCycleView === 'Weekly' ? 'active' : ''} onClick={() => setPayCycleView('Weekly')}>Weekly staff</button>
+            </div>
+            {payCycleView === 'Monthly' ? (
+              <select value={`${year}-${month}`} onChange={(e) => { const [y, m] = e.target.value.split('-').map(Number); setYM({ year: y, month: m }); }} className="month-select">
+                {monthOptions.map((m) => <option key={`${m.year}-${m.month}`} value={`${m.year}-${m.month}`}>{monthLabel(m.year, m.month)}</option>)}
+              </select>
+            ) : (
+              <div className="week-nav">
+                <button type="button" className="icon-button" onClick={() => { const d = new Date(`${weekStart}T00:00:00`); d.setDate(d.getDate() - 7); setWeekStart(d.toISOString().slice(0, 10)); }}>‹</button>
+                <strong>{weekLabel(weekStart)}</strong>
+                <button type="button" className="icon-button" onClick={() => { const d = new Date(`${weekStart}T00:00:00`); d.setDate(d.getDate() + 7); setWeekStart(d.toISOString().slice(0, 10)); }}>›</button>
+              </div>
+            )}
             <button className="button primary" onClick={openCreate}><UserPlus size={17} /> Add employee</button>
           </>
         )}
       />
 
       <section className="stats-grid">
-        <StatCard label="Active staff" value={String(activeEmployees.length)} helper={`${label}`} icon={Users} />
+        <StatCard label="Active staff" value={String(activeEmployees.length)} helper={`${periodLabel} · ${payCycleView}`} icon={Users} />
         <StatCard label="Gross payroll" value={currency(salarySummary.gross)} helper="Sum of monthly gross salary" icon={CreditCard} tone="default" />
         <StatCard label="Net payable" value={currency(salarySummary.net)} helper="After deductions" icon={Check} tone="success" />
         <StatCard label="Outstanding advances" value={currency(outstandingTotal)} helper="Not yet cleared" icon={Ban} tone={outstandingTotal > 0 ? 'warning' : 'default'} />
@@ -198,8 +238,41 @@ export function Attendance() {
 
       {tab === 'Attendance' && (
         <section className="panel table-panel">
-          <div className="panel-header"><div><h2>Daily attendance — {label}</h2><span className="eyebrow">Tap a day to cycle Present → Absent → Half day → Leave → Blank</span></div></div>
-          {filtered.length === 0 ? <EmptyState title="No employees found" description="Add staff to start recording attendance." action={<button className="button primary" onClick={openCreate}><UserPlus size={17} /> Add employee</button>} /> : (
+          <div className="panel-header"><div><h2>Daily attendance — {periodLabel}</h2><span className="eyebrow">Tap a day to cycle Present → Absent → Half day → Leave → Blank</span></div></div>
+          {filtered.length === 0 ? <EmptyState title="No employees found" description={payCycleView === 'Weekly' ? 'Add Mesthri, Electrician, Tile Worker, Painter or weekly Labor staff to record weekly attendance.' : 'Add staff to start recording attendance.'} action={<button className="button primary" onClick={openCreate}><UserPlus size={17} /> Add employee</button>} /> : payCycleView === 'Weekly' ? (
+            <div className="table-scroll">
+              <table className="data-table attendance-table">
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    {weekParts.map((part) => <th key={`${part.year}-${part.month}-${part.day}`}>{new Date(part.year, part.month - 1, part.day).toLocaleDateString('en-IN', { weekday: 'short' })}<br />{part.day}</th>)}
+                    <th>Payable days</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((emp) => {
+                    const summary = summarizeAttendanceForDates(data, emp.id, weekParts);
+                    return (
+                      <Fragment key={emp.id}>
+                        <tr>
+                          <td><strong>{emp.name}</strong><span>{emp.code} · {emp.branch}</span></td>
+                          {weekParts.map((part) => {
+                            const state = dayState(data.attendance[attendanceKey(emp.id, part.year, part.month, part.day)]);
+                            return (
+                              <td key={`${part.year}-${part.month}-${part.day}`}>
+                                <button type="button" className={`day-cell day-${state}`} onClick={() => cycleDatePart(emp, part)}>{DAY_LABEL[state]}</button>
+                              </td>
+                            );
+                          })}
+                          <td><strong>{number(summary.payableDays, 1)}</strong></td>
+                        </tr>
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
             <div className="table-scroll">
               <table className="data-table attendance-table">
                 <thead>
@@ -238,11 +311,11 @@ export function Attendance() {
 
       {tab === 'Salary' && (
         <section className="panel table-panel">
-          <div className="panel-header"><div><h2>Payroll summary — {label}</h2><span className="eyebrow">Earned salary after attendance and advance deductions</span></div></div>
+          <div className="panel-header"><div><h2>Payroll summary — {periodLabel}</h2><span className="eyebrow">Earned salary after attendance and advance deductions</span></div></div>
           {salaryRows.length === 0 ? <EmptyState title="No employees found" description="Add staff to compute payroll." /> : (
             <div className="table-scroll">
               <table className="data-table">
-                <thead><tr><th>Employee</th><th>Gross</th><th>Working days</th><th>Payable days</th><th>Earned</th><th>Advance</th><th>Other</th><th>Net payable</th><th>Deductions</th></tr></thead>
+                <thead><tr><th>Employee</th><th>{payCycleView === 'Weekly' ? 'Weekly wage' : 'Gross (monthly)'}</th><th>Working days</th><th>Payable days</th><th>Earned</th><th>Advance</th><th>Other</th><th>Net payable</th><th>Deductions</th></tr></thead>
                 <tbody>
                   {salaryRows.map(({ employee: e, breakdown: b, attendance }) => {
                     const decision = getDecision(e.id);
@@ -314,17 +387,18 @@ export function Attendance() {
       {tab === 'Employees' && (
         <section className="panel table-panel">
           <div className="panel-header"><div><h2>Staff master</h2><span className="eyebrow">Employee salary structure and bank details</span></div></div>
-          {filtered.length === 0 ? <EmptyState title="No employees found" description="Add your first employee." action={<button className="button primary" onClick={openCreate}><UserPlus size={17} /> Add employee</button>} /> : (
+          {allFiltered.length === 0 ? <EmptyState title="No employees found" description="Add your first employee." action={<button className="button primary" onClick={openCreate}><UserPlus size={17} /> Add employee</button>} /> : (
             <div className="table-scroll">
               <table className="data-table">
-                <thead><tr><th>Employee</th><th>Branch</th><th>Department</th><th>Gross salary</th><th>Bank details</th><th>Outstanding advance</th><th /></tr></thead>
+                <thead><tr><th>Employee</th><th>Branch</th><th>Pay cycle</th><th>Department</th><th>Gross salary</th><th>Bank details</th><th>Outstanding advance</th><th /></tr></thead>
                 <tbody>
-                  {filtered.map((e) => (
+                  {allFiltered.map((e) => (
                     <tr key={e.id}>
                       <td><strong>{e.name}</strong><span>{e.code}</span></td>
                       <td><span className="status-pill neutral">{e.branch}</span></td>
+                      <td><span className={`soft-badge ${e.payCycle === 'Weekly' ? '' : 'warning-badge'}`}>{e.payCycle}</span></td>
                       <td>{e.department}</td>
-                      <td><strong>{currency(e.grossSalary)}</strong></td>
+                      <td><strong>{currency(e.grossSalary)}</strong><span>{e.payCycle === 'Weekly' ? 'per week' : 'per month'}</span></td>
                       <td>{e.bankName ? <>{e.bankName}<span>{e.accountNumber} · {e.ifscCode}</span></> : '—'}</td>
                       <td>{currency(outstandingAdvanceFor(data, e.id))}</td>
                       <td>
@@ -429,14 +503,30 @@ export function Attendance() {
           <div className="form-grid three">
             <label><span>Employee code *</span><input required value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value })} /></label>
             <label className="span-2"><span>Full name *</span><input required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
-            <label><span>Branch</span><select value={draft.branch} onChange={(e) => setDraft({ ...draft, branch: e.target.value as StaffBranch })}>{branches.map((b) => <option key={b}>{b}</option>)}</select></label>
+            <label><span>Branch</span><select value={draft.branch} onChange={(e) => {
+              const branch = e.target.value as StaffBranch;
+              const forcedWeekly = isWeeklyOnlyBranch(branch);
+              setDraft({ ...draft, branch, payCycle: forcedWeekly ? 'Weekly' : branch === 'Labor' ? draft.payCycle : 'Monthly' });
+            }}>{branches.map((b) => <option key={b}>{b}</option>)}</select></label>
             <label><span>Department</span><input value={draft.department} onChange={(e) => setDraft({ ...draft, department: e.target.value })} placeholder="Site engineering, Stores..." /></label>
-            <label><span>Gross salary (monthly) *</span><input type="number" min="0" required value={draft.grossSalary} onChange={(e) => setDraft({ ...draft, grossSalary: Number(e.target.value) })} /></label>
+            <label>
+              <span>Pay cycle</span>
+              {isWeeklyOnlyBranch(draft.branch) ? (
+                <input disabled value="Weekly (fixed for this role)" />
+              ) : draft.branch === 'Labor' ? (
+                <select value={draft.payCycle} onChange={(e) => setDraft({ ...draft, payCycle: e.target.value as PayCycle })}><option>Weekly</option><option>Monthly</option></select>
+              ) : (
+                <input disabled value="Monthly" />
+              )}
+            </label>
+            <label><span>{draft.payCycle === 'Weekly' ? 'Weekly wage *' : 'Gross salary (monthly) *'}</span><input type="number" min="0" required value={draft.grossSalary} onChange={(e) => setDraft({ ...draft, grossSalary: Number(e.target.value) })} /></label>
             <label><span>Other deduction</span><input type="number" min="0" value={draft.otherDeduction} onChange={(e) => setDraft({ ...draft, otherDeduction: Number(e.target.value) })} /></label>
             <label><span>Bank name</span><input value={draft.bankName ?? ''} onChange={(e) => setDraft({ ...draft, bankName: e.target.value })} /></label>
             <label><span>Account number</span><input value={draft.accountNumber ?? ''} onChange={(e) => setDraft({ ...draft, accountNumber: e.target.value })} /></label>
             <label><span>IFSC code</span><input value={draft.ifscCode ?? ''} onChange={(e) => setDraft({ ...draft, ifscCode: e.target.value })} /></label>
           </div>
+          {draft.branch === 'Labor' && <div className="alert info-alert">Labor staff can be paid weekly or monthly — pick whichever this worker has agreed to.</div>}
+          {isWeeklyOnlyBranch(draft.branch) && <div className="alert info-alert">Mesthri, Electrician, Tile Worker and Painter are always paid on a weekly cycle.</div>}
           <div className="form-actions"><button type="button" className="button secondary" onClick={() => setModalOpen(false)}>Cancel</button><button className="button primary">Save employee</button></div>
         </form>
       </Modal>

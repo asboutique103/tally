@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { Building2, Lock, User } from 'lucide-react';
+import { Lock, User } from 'lucide-react';
 import { useAuth } from '../store/AuthContext';
 
 export function Login() {
@@ -28,10 +28,10 @@ export function Login() {
     <div className="login-screen">
       <div className="login-card">
         <div className="login-brand">
-          <div className="brand-mark"><Building2 size={24} /></div>
+          <div className="brand-mark brand-mark-logo"><img src="/logo.png" alt="VMV Enterprise" /></div>
           <div>
-            <strong>ConstructFlow</strong>
-            <span>Ledger & Materials</span>
+            <strong>VMV Enterprise</strong>
+            <span>Building Today · Creating Tomorrow</span>
           </div>
         </div>
 

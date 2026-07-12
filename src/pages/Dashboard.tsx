@@ -28,7 +28,7 @@ export function Dashboard() {
 
   const inventory = inventoryRows(data);
   const stockValue = inventory.reduce((sum, item) => sum + item.stockValue, 0);
-  const lowStock = inventory.filter((item) => item.availableQty <= item.reorderLevel);
+  const lowStock = inventory.filter((item) => item.availableQty <= (item.reorderLevel ?? 0) && (item.reorderLevel ?? 0) > 0);
   const payable = data.bills.filter((bill) => bill.type === 'Purchase').reduce((sum, bill) => sum + billBalance(data, bill), 0);
   const receivable = data.bills.filter((bill) => bill.type === 'Client').reduce((sum, bill) => sum + billBalance(data, bill), 0);
   const totalReceived = data.receipts.reduce((sum, receipt) => sum + receipt.items.reduce((s, item) => s + item.quantity * item.rate, 0), 0);
@@ -38,8 +38,8 @@ export function Dashboard() {
   const dueSoonBills = data.bills.filter((bill) => billBalance(data, bill) > 0 && bill.dueDate >= todayValue && bill.dueDate <= nextWeekValue);
 
   const incompleteSuppliers = data.suppliers.filter((supplier) => !supplier.contactPerson || !supplier.phone || !supplier.gstin || !supplier.address).length;
-  const incompleteSites = data.sites.filter((site) => !site.clientName || !site.location || !site.siteEngineer || !site.phone || !site.budget || !site.startDate || !site.expectedEndDate).length;
-  const incompleteMaterials = data.materials.filter((material) => !material.hsnCode || !material.location || !material.reorderLevel || !material.standardRate).length;
+  const incompleteSites = data.sites.filter((site) => !site.clientName || !site.location || !site.phone || !site.startDate || !site.expectedEndDate).length;
+  const incompleteMaterials = data.materials.filter((material) => !material.hsnCode || !material.category).length;
   const missingCompanyProfile = !data.settings.gstin || !data.settings.phone || !data.settings.address || !data.settings.bankAccountNo || !data.settings.bankIfsc;
 
   const readiness = [
@@ -153,7 +153,7 @@ export function Dashboard() {
               <thead><tr><th>Material</th><th>Available</th><th>Reorder</th><th>Status</th></tr></thead>
               <tbody>
                 {(lowStock.length ? lowStock : inventory.slice(0, 4)).map((item) => (
-                  <tr key={item.id}><td><strong>{item.name}</strong><span>{item.code}</span></td><td>{number(item.availableQty)} {item.unit}</td><td>{number(item.reorderLevel)} {item.unit}</td><td><span className={`status-pill ${item.availableQty <= item.reorderLevel ? 'danger' : 'success'}`}>{item.availableQty <= item.reorderLevel ? 'Reorder' : 'Healthy'}</span></td></tr>
+                  <tr key={item.id}><td><strong>{item.name}</strong><span>{item.code}</span></td><td>{number(item.availableQty)} {item.unit}</td><td>{number(item.reorderLevel ?? 0)} {item.unit}</td><td><span className={`status-pill ${item.availableQty <= (item.reorderLevel ?? 0) ? 'danger' : 'success'}`}>{item.availableQty <= (item.reorderLevel ?? 0) ? 'Reorder' : 'Healthy'}</span></td></tr>
                 ))}
               </tbody>
             </table>

@@ -5,12 +5,12 @@ import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
 import { TransactionItemsEditor } from '../components/TransactionItemsEditor';
-import { currency, downloadCsv, itemsSubtotal, itemsTax, nextDocumentNo, today, uid } from '../lib/helpers';
+import { currency, downloadCsv, nextDocumentNo, receiptTotal, today, uid } from '../lib/helpers';
 import { cleanText, hasDuplicate, hasValidItems, isFilled } from '../lib/validation';
 import { useApp } from '../store/AppContext';
 import type { Receipt, TransactionItem } from '../types';
 
-const makeItems = (materialId = '', rate = 0, taxRate = 0): TransactionItem[] => [{ id: uid('ri'), materialId, quantity: 1, rate, taxRate }];
+const makeItems = (materialId = '', rate = 0): TransactionItem[] => [{ id: uid('ri'), materialId, quantity: 1, rate, taxRate: 0 }];
 
 export function Receipts() {
   const { data, addReceipt, deleteReceipt } = useApp();
@@ -22,10 +22,9 @@ export function Receipts() {
     supplierId: data.suppliers[0]?.id ?? '',
     invoiceNo: '',
     vehicleNo: '',
-    receivedBy: '',
     destination: 'Central Store',
     siteId: undefined,
-    items: makeItems(firstMaterial?.id, firstMaterial?.standardRate, firstMaterial?.taxRate),
+    items: makeItems(firstMaterial?.id, firstMaterial?.standardRate),
     notes: '',
     createdAt: new Date().toISOString(),
   });
@@ -41,8 +40,6 @@ export function Receipts() {
     [data.receipts, data.suppliers, query],
   );
 
-  const total = (receipt: Receipt) => itemsSubtotal(receipt.items) + itemsTax(receipt.items);
-
   const openCreate = () => {
     setDraft(empty());
     setError('');
@@ -56,13 +53,12 @@ export function Receipts() {
       receiptNo: cleanText(draft.receiptNo).toUpperCase(),
       invoiceNo: cleanText(draft.invoiceNo).toUpperCase(),
       vehicleNo: cleanText(draft.vehicleNo).toUpperCase(),
-      receivedBy: cleanText(draft.receivedBy),
       notes: cleanText(draft.notes),
       siteId: draft.destination === 'Direct to Site' ? draft.siteId : undefined,
     };
 
-    if (!isFilled(next.receiptNo) || !isFilled(next.date) || !isFilled(next.supplierId) || !isFilled(next.invoiceNo) || !isFilled(next.vehicleNo) || !isFilled(next.receivedBy)) {
-      setError('GRN number, date, supplier, supplier invoice, vehicle number and received-by name are mandatory.');
+    if (!isFilled(next.receiptNo) || !isFilled(next.date) || !isFilled(next.supplierId) || !isFilled(next.invoiceNo) || !isFilled(next.vehicleNo)) {
+      setError('GRN number, date, supplier, supplier invoice and vehicle number are mandatory.');
       return;
     }
     if (next.destination === 'Direct to Site' && !isFilled(next.siteId)) {
@@ -70,7 +66,7 @@ export function Receipts() {
       return;
     }
     if (!hasValidItems(next.items)) {
-      setError('Add at least one material line with material, quantity, rate and tax.');
+      setError('Add at least one material line with material, quantity and rate.');
       return;
     }
     if (hasDuplicate(data.receipts, next.id, (receipt) => receipt.receiptNo.toUpperCase() === next.receiptNo)) {
@@ -101,7 +97,7 @@ export function Receipts() {
               Invoice: receipt.invoiceNo,
               Vehicle: receipt.vehicleNo,
               Destination: receipt.destination,
-              Value: total(receipt),
+              Value: receiptTotal(receipt),
             })))}><Download size={17} /> Export</button>
             <button className="button primary" disabled={!data.suppliers.length || !data.materials.length} onClick={openCreate}><Plus size={17} /> Receive material</button>
           </>
@@ -119,13 +115,13 @@ export function Receipts() {
               <thead><tr><th>GRN</th><th>Date</th><th>Supplier</th><th>Invoice / vehicle</th><th>Destination</th><th>Items</th><th>Total value</th><th /></tr></thead>
               <tbody>{filtered.map((receipt) => (
                 <tr key={receipt.id}>
-                  <td><strong>{receipt.receiptNo}</strong><span>Received by {receipt.receivedBy || '-'}</span></td>
+                  <td><strong>{receipt.receiptNo}</strong></td>
                   <td>{new Date(receipt.date).toLocaleDateString('en-IN')}</td>
                   <td>{data.suppliers.find((supplier) => supplier.id === receipt.supplierId)?.name || '-'}</td>
                   <td><strong>{receipt.invoiceNo || 'No invoice'}</strong><span>{receipt.vehicleNo || 'No vehicle'}</span></td>
                   <td><span className="soft-badge">{receipt.destination}</span>{receipt.siteId && <span>{data.sites.find((site) => site.id === receipt.siteId)?.name}</span>}</td>
                   <td>{receipt.items.length}</td>
-                  <td><strong>{currency(total(receipt))}</strong></td>
+                  <td><strong>{currency(receiptTotal(receipt))}</strong></td>
                   <td>
                     <div className="row-actions">
                       <button className="icon-button" onClick={() => setView(receipt)} aria-label={`View ${receipt.receiptNo}`}><Eye size={16} /></button>
@@ -148,12 +144,11 @@ export function Receipts() {
             <label><span>Supplier *</span><select required value={draft.supplierId} onChange={(event) => setDraft({ ...draft, supplierId: event.target.value })}><option value="">Select supplier</option>{data.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
             <label><span>Supplier invoice no. *</span><input required value={draft.invoiceNo} onChange={(event) => setDraft({ ...draft, invoiceNo: event.target.value.toUpperCase() })} /></label>
             <label><span>Vehicle no. *</span><input required value={draft.vehicleNo} onChange={(event) => setDraft({ ...draft, vehicleNo: event.target.value.toUpperCase() })} /></label>
-            <label><span>Received by *</span><input required value={draft.receivedBy} onChange={(event) => setDraft({ ...draft, receivedBy: event.target.value })} /></label>
             <label><span>Destination *</span><select required value={draft.destination} onChange={(event) => setDraft({ ...draft, destination: event.target.value as Receipt['destination'], siteId: event.target.value === 'Central Store' ? undefined : draft.siteId })}><option>Central Store</option><option>Direct to Site</option></select></label>
             {draft.destination === 'Direct to Site' && <label className="span-2"><span>Site *</span><select required value={draft.siteId ?? ''} onChange={(event) => setDraft({ ...draft, siteId: event.target.value })}><option value="">Select site</option>{data.sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>}
           </div>
-          <TransactionItemsEditor materials={data.materials} items={draft.items} onChange={(items) => setDraft({ ...draft, items })} />
-          <div className="document-total"><span>Subtotal {currency(itemsSubtotal(draft.items))}</span><span>Tax {currency(itemsTax(draft.items))}</span><strong>Total {currency(itemsSubtotal(draft.items) + itemsTax(draft.items))}</strong></div>
+          <TransactionItemsEditor materials={data.materials} items={draft.items} onChange={(items) => setDraft({ ...draft, items })} showTax={false} />
+          <div className="document-total"><strong>Total {currency(receiptTotal(draft))}</strong></div>
           <label><span>Notes</span><textarea rows={3} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label>
           <div className="form-actions">
             <button type="button" className="button secondary" onClick={() => setOpen(false)}>Cancel</button>
@@ -172,18 +167,17 @@ export function Receipts() {
               <div><span>Vehicle</span><strong>{view.vehicleNo || '-'}</strong></div>
             </div>
             <table className="items-table">
-              <thead><tr><th>Material</th><th>Qty</th><th>Rate</th><th>Tax</th><th>Total</th></tr></thead>
+              <thead><tr><th>Material</th><th>Qty</th><th>Rate</th><th>Total</th></tr></thead>
               <tbody>{view.items.map((item) => (
                 <tr key={item.id}>
                   <td>{data.materials.find((material) => material.id === item.materialId)?.name}</td>
                   <td>{item.quantity} {data.materials.find((material) => material.id === item.materialId)?.unit}</td>
                   <td>{currency(item.rate)}</td>
-                  <td>{item.taxRate}%</td>
-                  <td>{currency(item.quantity * item.rate * (1 + item.taxRate / 100))}</td>
+                  <td>{currency(item.quantity * item.rate)}</td>
                 </tr>
               ))}</tbody>
             </table>
-            <div className="document-total"><strong>Total {currency(total(view))}</strong></div>
+            <div className="document-total"><strong>Total {currency(receiptTotal(view))}</strong></div>
           </div>
         )}
       </Modal>
