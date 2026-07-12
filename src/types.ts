@@ -27,9 +27,9 @@ export interface Site {
   name: string;
   clientName: string;
   location: string;
-  siteEngineer: string;
+  siteEngineer?: string;
   phone: string;
-  budget: number;
+  budget?: number;
   startDate: string;
   expectedEndDate: string;
   status: 'Planning' | 'Active' | 'On Hold' | 'Completed';
@@ -43,11 +43,11 @@ export interface Material {
   category: string;
   hsnCode?: string;
   unit: Unit;
-  standardRate: number;
-  taxRate: number;
-  reorderLevel: number;
+  standardRate?: number;
+  taxRate?: number;
+  reorderLevel?: number;
   openingStock: number;
-  location: string;
+  location?: string;
   createdAt: string;
 }
 
@@ -67,7 +67,6 @@ export interface Receipt {
   supplierId: Id;
   invoiceNo: string;
   vehicleNo: string;
-  receivedBy: string;
   destination: 'Central Store' | 'Direct to Site';
   siteId?: Id;
   items: TransactionItem[];
@@ -81,12 +80,10 @@ export interface Supply {
   issueNo: string;
   date: string;
   siteId: Id;
-  requestedBy: string;
-  approvedBy: string;
-  vehicleNo: string;
-  driverName: string;
   items: TransactionItem[];
   notes: string;
+  gstEnabled: boolean;
+  gstRate: number;
   createdAt: string;
 }
 
@@ -105,21 +102,28 @@ export interface Bill {
   deliveryAddress?: string;
   ewayBillNo?: string;
   vehicleNo?: string;
-  referenceNo: string;
+  referenceNo?: string;
   items: TransactionItem[];
   discount: number;
   otherCharges: number;
+  gstEnabled: boolean;
+  gstRate: number;
   notes: string;
   status: PaymentStatus;
   inventoryPosting: InventoryPosting;
   createdAt: string;
 }
 
+export type PaymentCategory = 'Bill' | 'Supply' | 'Receipt' | 'Employee';
+
 export interface Payment {
   id: Id;
   paymentNo: string;
   date: string;
-  billId: Id;
+  category: PaymentCategory;
+  targetId: Id;
+  /** @deprecated use targetId with category 'Bill' */
+  billId?: Id;
   partyName: string;
   direction: 'Paid' | 'Received';
   amount: number;
@@ -171,7 +175,8 @@ export interface AuditEntry {
   details: string;
 }
 
-export type StaffBranch = 'Head Office' | 'Site' | 'Store' | 'Admin';
+export type StaffBranch = 'Head Office' | 'Site' | 'Store' | 'Admin' | 'Mesthri' | 'Electrician' | 'Tile Worker' | 'Painter' | 'Labor';
+export type PayCycle = 'Weekly' | 'Monthly';
 
 export interface Employee {
   id: Id;
@@ -179,6 +184,7 @@ export interface Employee {
   name: string;
   branch: StaffBranch;
   department: string;
+  payCycle: PayCycle;
   grossSalary: number;
   salaryAdvance: number;
   otherDeduction: number;
