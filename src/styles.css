@@ -417,6 +417,7 @@ input:focus, select:focus, textarea:focus { border-color: #a6a7f8; box-shadow: 0
 .audit-row { display: flex; gap: 13px; padding: 14px 17px; border-top: 1px solid var(--line); }
 .audit-row:first-child { border-top: 0; }
 .audit-icon { flex: 0 0 auto; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--primary-soft); color: var(--primary); }
+.audit-icon.action-created { background: var(--teal-soft); color: var(--teal); }
 .audit-icon.action-deleted { background: var(--red-soft); color: var(--red); }
 .audit-icon.action-updated { background: #fff5df; color: #a66c00; }
 .audit-icon.action-reset { background: #eef1f6; color: #5d687b; }
