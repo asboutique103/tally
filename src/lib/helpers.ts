@@ -1,6 +1,6 @@
 import type { AppData, Bill, DayAttendance, DeductionDecision, Employee, InventoryRow, Receipt, StockMovement, Supply, TransactionItem, Voucher, VoucherLine } from '../types';
 
-export const uid = (prefix = 'id') => `${prefix}-${crypto.randomUUID()}`;
+export const uid = (_prefix = 'id') => crypto.randomUUID();
 export const dateInputValue = (date = new Date()) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -183,76 +183,37 @@ export const inventoryRows = (data: AppData): InventoryRow[] => {
 const line = (accountId: string, debit = 0, credit = 0, narration = ''): VoucherLine => ({ id: uid('vl'), accountId, debit, credit, narration });
 const cleanLines = (lines: VoucherLine[]) => lines.filter((entry) => Math.abs(entry.debit) > 0.0001 || Math.abs(entry.credit) > 0.0001);
 
+/**
+ * Bills, supplies, and payments already generate correctly-linked accounting
+ * vouchers server-side (via database triggers, using real ledger_accounts
+ * UUIDs) — those come back in data.vouchers from get_workspace. This
+ * function only needs to add the one thing the server doesn't compute: a
+ * synthetic "opening balances" voucher representing account opening
+ * balances, material opening stock value, and supplier opening balances.
+ */
 export const allVouchers = (data: AppData): Voucher[] => {
-  const vouchers: Voucher[] = [];
+  const findAccountByCode = (code: string) => data.accounts.find((account) => account.code === code);
+
   const openingLines: VoucherLine[] = [];
   data.accounts.forEach((account) => {
-    if (!account.openingBalance || account.id === 'acc-equity') return;
+    if (!account.openingBalance) return;
     if (account.category === 'Asset' || account.category === 'Expense') openingLines.push(line(account.id, account.openingBalance, 0, 'Ledger opening balance'));
     else openingLines.push(line(account.id, 0, account.openingBalance, 'Ledger opening balance'));
   });
   const materialOpening = data.materials.reduce((sum, material) => sum + material.openingStock * (material.standardRate ?? 0), 0);
   const supplierOpening = data.suppliers.reduce((sum, supplier) => sum + supplier.openingBalance, 0);
-  if (materialOpening) openingLines.push(line('acc-inventory', materialOpening, 0, 'Material opening stock'));
-  if (supplierOpening) openingLines.push(line('acc-payable', 0, supplierOpening, 'Supplier opening balances'));
+  const inventoryAccount = findAccountByCode('1200');
+  const payableAccount = findAccountByCode('2000');
+  const equityAccount = findAccountByCode('3000');
+  if (materialOpening && inventoryAccount) openingLines.push(line(inventoryAccount.id, materialOpening, 0, 'Material opening stock'));
+  if (supplierOpening && payableAccount) openingLines.push(line(payableAccount.id, 0, supplierOpening, 'Supplier opening balances'));
   const openingDebit = openingLines.reduce((sum, entry) => sum + entry.debit, 0);
   const openingCredit = openingLines.reduce((sum, entry) => sum + entry.credit, 0);
-  if (openingDebit > openingCredit) openingLines.push(line('acc-equity', 0, openingDebit - openingCredit, 'Opening balance difference'));
-  if (openingCredit > openingDebit) openingLines.push(line('acc-equity', openingCredit - openingDebit, 0, 'Opening balance difference'));
+  if (equityAccount && openingDebit > openingCredit) openingLines.push(line(equityAccount.id, 0, openingDebit - openingCredit, 'Opening balance difference'));
+  if (equityAccount && openingCredit > openingDebit) openingLines.push(line(equityAccount.id, openingCredit - openingDebit, 0, 'Opening balance difference'));
+
+  const vouchers: Voucher[] = [];
   if (openingLines.length) vouchers.push({ id: 'auto-opening', voucherNo: 'OPENING', type: 'Opening', date: data.settings.financialYearStart, partyName: data.settings.companyName, reference: '', narration: 'Opening balances', lines: cleanLines(openingLines), sourceType: 'Opening', createdAt: data.settings.financialYearStart });
-
-  data.bills.forEach((bill) => {
-    const subtotal = itemsSubtotal(bill.items);
-    const tax = gstAmount(bill.items, bill.gstEnabled, bill.gstRate);
-    const total = billTotal(bill);
-    const lines: VoucherLine[] = [];
-    if (bill.type === 'Purchase') {
-      lines.push(line(bill.inventoryPosting === 'Auto Post' ? 'acc-inventory' : 'acc-purchases', subtotal, 0, 'Purchase value'));
-      lines.push(line('acc-input-gst', tax, 0, 'Input GST'));
-      lines.push(line('acc-other-charges', bill.otherCharges, 0, 'Freight and charges'));
-      lines.push(line('acc-payable', 0, total, bill.partyName));
-      lines.push(line('acc-discount-received', 0, bill.discount, 'Purchase discount'));
-    } else {
-      lines.push(line('acc-receivable', total, 0, bill.partyName));
-      lines.push(line('acc-discount-allowed', bill.discount, 0, 'Sales discount'));
-      lines.push(line('acc-sales', 0, subtotal, 'Construction/material revenue'));
-      lines.push(line('acc-output-gst', 0, tax, 'Output GST'));
-      lines.push(line('acc-other-income', 0, bill.otherCharges, 'Other billed charges'));
-      if (bill.inventoryPosting === 'Auto Post') {
-        const cost = bill.items.reduce((sum, item) => {
-          const material = data.materials.find((candidate) => candidate.id === item.materialId);
-          return sum + item.quantity * (material?.standardRate ?? item.rate);
-        }, 0);
-        lines.push(line('acc-site-expense', cost, 0, 'Cost of materials sold'));
-        lines.push(line('acc-inventory', 0, cost, 'Inventory issued through invoice'));
-      }
-    }
-    vouchers.push({ id: `auto-${bill.id}`, voucherNo: bill.billNo, type: bill.type === 'Purchase' ? 'Debit Note' : 'Credit Note', date: bill.date, partyName: bill.partyName, reference: bill.referenceNo ?? '', narration: bill.notes || `${bill.type} invoice posting`, lines: cleanLines(lines), sourceType: 'Bill', sourceId: bill.id, createdAt: bill.createdAt });
-  });
-
-  data.supplies.forEach((supply) => {
-    const value = supply.items.reduce((sum, item) => {
-      const material = data.materials.find((candidate) => candidate.id === item.materialId);
-      return sum + item.quantity * (material?.standardRate ?? item.rate);
-    }, 0);
-    if (!value) return;
-    const site = data.sites.find((candidate) => candidate.id === supply.siteId);
-    vouchers.push({ id: `auto-${supply.id}`, voucherNo: supply.issueNo, type: 'Journal', date: supply.date, partyName: site?.name ?? '', reference: supply.issueNo, narration: supply.notes || 'Material issued to site', lines: [line('acc-site-expense', value, 0, 'Site consumption'), line('acc-inventory', 0, value, 'Inventory issued')], sourceType: 'Manual', sourceId: supply.id, createdAt: supply.createdAt });
-  });
-
-  data.payments.forEach((payment) => {
-    const cashAccount = payment.mode === 'Cash' ? 'acc-cash' : 'acc-bank';
-    const counterAccount = payment.category === 'Employee' ? 'acc-wages-expense'
-      : payment.category === 'Receipt' ? 'acc-payable'
-      : payment.category === 'Supply' ? 'acc-receivable'
-      : payment.direction === 'Paid' ? 'acc-payable' : 'acc-receivable';
-    const lines = payment.category === 'Employee'
-      ? [line(counterAccount, payment.amount, 0, payment.partyName), line(cashAccount, 0, payment.amount, payment.mode)]
-      : payment.direction === 'Paid'
-        ? [line(counterAccount, payment.amount, 0, payment.partyName), line(cashAccount, 0, payment.amount, payment.mode)]
-        : [line(cashAccount, payment.amount, 0, payment.mode), line(counterAccount, 0, payment.amount, payment.partyName)];
-    vouchers.push({ id: `auto-${payment.id}`, voucherNo: payment.paymentNo, type: payment.category === 'Employee' ? 'Payment' : payment.direction === 'Paid' ? 'Payment' : 'Receipt', date: payment.date, partyName: payment.partyName, reference: payment.reference, narration: payment.notes || `${payment.category} payment`, lines, sourceType: 'Payment', sourceId: payment.id, createdAt: payment.createdAt });
-  });
 
   return [...vouchers, ...data.vouchers].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
 };
