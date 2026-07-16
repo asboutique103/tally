@@ -93,20 +93,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
       db.updateSettings(sessionToken, data.settings as AppSettings).then(() => {
         lastPushedSettings.current = snapshot;
         setSyncError(null);
+        return refresh(sessionToken);
       }).catch((error) => {
         console.error('Unable to save settings to Supabase', error);
         setSyncError(error instanceof Error ? error.message : 'Unable to save settings to Supabase.');
       });
     }, 350);
     return () => window.clearTimeout(handle);
-  }, [cloudLoaded, data.settings, isAuthenticated, sessionToken]);
+  }, [cloudLoaded, data.settings, isAuthenticated, refresh, sessionToken]);
 
   const run = useCallback((action: () => Promise<unknown>) => {
-    if (!isSupabaseConfigured || !sessionToken) return;
-    void action().then(() => refresh(sessionToken)).then(() => setSyncError(null)).catch((error) => {
-      console.error('Supabase write failed', error);
-      setSyncError(error instanceof Error ? error.message : 'That change could not be saved to Supabase.');
-    });
+    if (!isSupabaseConfigured) {
+      setSyncError('Supabase is not configured in this environment, so this change was not saved.');
+      return;
+    }
+    if (!sessionToken) {
+      setSyncError('Your session looks invalid. Please sign in again before making changes.');
+      return;
+    }
+    const token = sessionToken;
+    void (async () => {
+      try {
+        await action();
+      } catch (error) {
+        console.error('Supabase write failed', error);
+        setSyncError(error instanceof Error ? error.message : 'That change could not be saved to Supabase.');
+        return;
+      }
+      try {
+        await refresh(token);
+        setSyncError(null);
+      } catch (error) {
+        console.error('Saved, but refreshing the latest data failed', error);
+        setSyncError('Your change was saved, but refreshing the latest data failed. Reload the page to see it.');
+      }
+    })();
   }, [refresh, sessionToken]);
 
   const value = useMemo<AppContextValue>(() => ({
