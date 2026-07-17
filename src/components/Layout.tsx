@@ -23,7 +23,7 @@ import {
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { canRoleAccess } from '../lib/access';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { isLocalModeEnabled, isSupabaseConfigured } from '../lib/supabase';
 import { useApp } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
 
@@ -90,7 +90,7 @@ export function Layout() {
             {collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
           </button>
           <div className="health-dot" />
-          <div><strong>{isSupabaseConfigured ? 'Supabase cloud mode' : 'Enterprise local mode'}</strong><span>{isSupabaseConfigured ? 'Cloud data sync enabled' : 'Accounting + stock integrated'}</span></div>
+          <div><strong>{isSupabaseConfigured ? 'Supabase cloud mode' : 'Development local mode'}</strong><span>{isSupabaseConfigured ? 'Cloud data sync enabled' : isLocalModeEnabled ? 'Browser-only test data' : 'Configuration required'}</span></div>
         </div>
       </aside>
 
