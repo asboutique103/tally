@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { isSupabaseConfigured, supabase } from '../lib/supabase';
+import { isLocalModeEnabled, isSupabaseConfigured, supabase } from '../lib/supabase';
 import type { Role } from '../types';
 
 const AUTH_KEY = 'constructflow-auth-v4';
@@ -68,13 +68,13 @@ const storeAuth = (auth: AuthUser) => sessionStorage.setItem(AUTH_KEY, JSON.stri
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [authUser, setAuthUser] = useState<AuthUser | null>(() => isSupabaseConfigured ? parseStoredAuth() : LOCAL_USER);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(() => isSupabaseConfigured ? parseStoredAuth() : isLocalModeEnabled ? LOCAL_USER : null);
   const [loading, setLoading] = useState(() => Boolean(isSupabaseConfigured && parseStoredAuth()));
 
   useEffect(() => {
     const stored = parseStoredAuth();
     if (!stored || !isSupabaseConfigured || !supabase) {
-      if (!isSupabaseConfigured) {
+      if (isLocalModeEnabled) {
         sessionStorage.removeItem(AUTH_KEY);
         setAuthUser(LOCAL_USER);
       } else {
@@ -117,10 +117,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (username: string, password: string): Promise<{ ok: boolean; error?: string }> => {
-    if (!isSupabaseConfigured || !supabase) {
+    if (isLocalModeEnabled) {
       setAuthUser(LOCAL_USER);
       return { ok: true };
     }
+    if (!isSupabaseConfigured || !supabase) return { ok: false, error: 'The production database is not configured.' };
 
     let data: unknown;
     let error: { message: string } | null;
@@ -155,7 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    if (!isSupabaseConfigured) {
+    if (isLocalModeEnabled) {
       setAuthUser(LOCAL_USER);
       return;
     }

@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import * as db from '../lib/storage';
 import { seedData } from '../data/seed';
 import { attendanceKey, defaultDeductionDecision } from '../lib/helpers';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { isLocalModeEnabled, isSupabaseConfigured } from '../lib/supabase';
 import {
   appendAudit, loadLocalWorkspace, normalizeWorkspace, saveLocalWorkspace,
   validateWorkspace, type WorkspaceAudit,
@@ -58,8 +58,8 @@ const upsertById = <T extends { id: string }>(items: T[], item: T) =>
     : [...items, item];
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [data, setData] = useState<AppData>(() => isSupabaseConfigured ? normalizeWorkspace(seedData) : loadLocalWorkspace());
-  const [cloudLoaded, setCloudLoaded] = useState(!isSupabaseConfigured);
+  const [data, setData] = useState<AppData>(() => isLocalModeEnabled ? loadLocalWorkspace() : normalizeWorkspace(seedData));
+  const [cloudLoaded, setCloudLoaded] = useState(isLocalModeEnabled);
   const [saving, setSaving] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const { isAuthenticated, loading, sessionToken, username } = useAuth();
@@ -76,7 +76,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) {
+    if (isLocalModeEnabled) {
       const local = loadLocalWorkspace();
       dataRef.current = local;
       setData(local);
@@ -113,11 +113,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           } catch {
             throw new Error('Your change was saved, but the latest data could not be reloaded. Refresh the page.');
           }
-        } else {
+        } else if (isLocalModeEnabled) {
           const saved = appendAudit(candidate, username || 'Local Owner', audit);
           saveLocalWorkspace(saved);
           dataRef.current = saved;
           setData(saved);
+        } else {
+          throw new Error('The production database is not configured.');
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'That change could not be saved.';
