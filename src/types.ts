@@ -160,7 +160,7 @@ export interface Voucher {
   reference: string;
   narration: string;
   lines: VoucherLine[];
-  sourceType?: 'Bill' | 'Payment' | 'Opening' | 'Manual';
+  sourceType?: 'Bill' | 'Payment' | 'Supply' | 'Opening' | 'Manual';
   sourceId?: Id;
   createdAt: string;
 }
