@@ -1,63 +1,62 @@
-# ConstructFlow Enterprise v2.0
+# ConstructFlow Enterprise v2.0.1
 
-Construction ERP combining materials, stock, supplier billing, client invoicing, payments, double-entry accounting, project consumption and audit control.
+Construction ERP for materials, stock, suppliers, project billing, payments,
+double-entry accounting, payroll, and audit control.
 
-## What is functional now
+## Development
 
-- Material, supplier and construction-site masters
-- Goods receipt notes and direct-to-site receipts
-- Material issue notes with strict negative-stock control
-- Purchase invoices and client invoices
-- **Invoice-to-stock synchronization**
-  - Purchase invoice + `Auto Post` adds quantities to central stock
-  - Client invoice + `Auto Post` deducts quantities from central stock
-  - `Accounting Only` posts finance and GST without moving stock
-- Invoice-to-accounting synchronization
-  - Purchase/client invoices automatically create balanced vouchers
-  - Payments and collections automatically update cash/bank and receivable/payable accounts
-  - Site issues automatically post material consumption against inventory
-- Stock movement ledger with document-level traceability and running balance
-- Day Book, General Ledger, Trial Balance, Profit & Loss and Balance Sheet
-- Manual Journal, Contra, Receipt, Payment, Debit Note and Credit Note vouchers
-- Supplier payable ledger and client/project billing
-- GST/tax summary
-- Audit trail for creation, updates and deletions
-- Responsive desktop, tablet and mobile UI
-- Blank local workspace mode and Supabase-ready schema
-
-## Run locally
+Requirements: Node.js 20+ and npm 10+.
 
 ```bash
 npm install
 npm run dev
 ```
 
-Production validation:
+When `VITE_USE_SUPABASE` is not `true`, local workspace mode is available only
+from the Vite development server. It is intentionally disabled in production.
+
+## Production configuration
+
+Set all of these variables in the hosting environment:
+
+```env
+VITE_USE_SUPABASE=true
+VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+VITE_SUPABASE_ANON_KEY=YOUR_PUBLIC_ANON_KEY
+```
+
+Use the Supabase public anon key only. Never expose a service-role key in the
+frontend. A production build with missing cloud configuration fails closed and
+does not create a local Owner session.
+
+Before deployment, follow `SUPABASE_SETUP.md`, then run:
 
 ```bash
 npm run lint
+npm test
 npm run build
-npm run preview
 ```
 
-## Supabase
+## Database architecture
 
-For a new database, run:
+The frontend uses the existing relational Tally schema through protected RPC
+functions. It does not use `app_state` JSON storage. The old root SQL filenames
+are retired no-op markers so an outdated runbook cannot install the wrong
+schema or reset an application password.
 
-1. `SUPABASE_FULL_SCHEMA_V2.sql`
-2. `SUPABASE_APP_STATE.sql`
-
-Set `VITE_USE_SUPABASE=true`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_ANON_KEY` in your environment. In Supabase mode, login uses the `public.app_users` table and protected RPC sessions. The default seeded login is username `Admin` and password `Admin@766`; change it after first sign-in if this is a live workspace.
-
-## Important accounting behavior
+## Accounting behavior
 
 A physical delivery should normally be entered as either:
 
-- GRN followed by an `Accounting Only` supplier invoice, or
+- a GRN followed by an `Accounting Only` supplier invoice, or
 - a purchase invoice with `Auto Post` when no separate GRN is used.
 
-Do not auto-post both a GRN and the matching purchase invoice, otherwise the same physical quantity is intentionally counted twice. This choice exists because many construction companies receive materials before the supplier invoice arrives.
+Do not auto-post both a GRN and its matching purchase invoice, because that
+records the physical quantity twice. Automatic accounting vouchers are created
+by database triggers and cannot be deleted directly.
 
 ## Hosting
 
-This app uses `BrowserRouter`. Configure the host to rewrite unknown routes to `index.html`.
+`vercel.json` provides SPA rewrites and production security headers. For another
+host, rewrite unknown routes to `index.html`, serve only over HTTPS, and apply an
+equivalent Content Security Policy.
