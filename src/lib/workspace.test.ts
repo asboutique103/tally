@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { seedData } from '../data/seed';
-import type { AppData, Bill, Material, Payment, Receipt, Site, Supply, Voucher } from '../types';
-import { accountBalances, allVouchers, csvCell, voucherTotals } from './helpers';
+import type { AppData, Bill, Employee, Material, Payment, Receipt, Site, Supply, Voucher } from '../types';
+import { accountBalances, allVouchers, attendanceKey, csvCell, departmentAnalytics, voucherTotals } from './helpers';
 import { validateWorkspace } from './workspace';
 
 const now = '2026-07-17T00:00:00.000Z';
@@ -42,6 +42,12 @@ describe('workspace integrity', () => {
     data.receipts = [receipt];
     expect(() => validateWorkspace(data)).toThrow(/unknown supplier/);
   });
+
+  it('keeps the GST workspace currency fixed to INR', () => {
+    const data = workspace();
+    data.settings.currency = 'USD';
+    expect(validateWorkspace(data).settings.currency).toBe('INR');
+  });
 });
 
 describe('accounting and exports', () => {
@@ -79,5 +85,20 @@ describe('accounting and exports', () => {
     expect(csvCell('=2+2')).toBe("'=2+2");
     expect(csvCell('@SUM(A1:A2)')).toBe("'@SUM(A1:A2)");
     expect(csvCell('safe')).toBe('safe');
+  });
+
+  it('uses the selected month deduction decision in department analytics', () => {
+    const data = workspace();
+    const employee: Employee = {
+      id: 'e1', code: 'EMP-1', name: 'Employee', branch: 'Labor', department: 'Civil',
+      payCycle: 'Monthly', grossSalary: 3100, salaryAdvance: 0, otherDeduction: 25,
+      status: 'Active', createdAt: now,
+    };
+    data.employees = [employee];
+    data.attendance[attendanceKey(employee.id, 2026, 7, 1)] = { present: true, half: false, woff: false, absent: false };
+    data.deductionDecisions[employee.id] = { deductAdvance: false, deductOther: true };
+    data.deductionDecisions[`${employee.id}_month-2026-07`] = { deductAdvance: false, deductOther: false };
+
+    expect(departmentAnalytics(data, [employee], 2026, 7)[0].net).toBe(100);
   });
 });

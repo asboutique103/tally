@@ -1,5 +1,5 @@
 import { seedData } from '../data/seed';
-import { billTotal, inventoryRows, receiptTotal, supplyTotal, voucherTotals } from './helpers';
+import { billTotal, inventoryRows, receiptTotal, supplyTotal, today, voucherTotals } from './helpers';
 import type { AppData, AuditEntry, Payment, PaymentStatus, Voucher } from '../types';
 
 const LOCAL_WORKSPACE_KEY = 'constructflow-workspace-v5';
@@ -87,7 +87,7 @@ export const recalculateBillStatuses = (data: AppData): AppData => ({
     let status: PaymentStatus = 'Unpaid';
     if (total > 0 && paid >= total - 0.005) status = 'Paid';
     else if (paid > 0) status = 'Partially Paid';
-    else if (bill.dueDate && bill.dueDate < new Date().toISOString().slice(0, 10)) status = 'Overdue';
+    else if (bill.dueDate && bill.dueDate < today()) status = 'Overdue';
     return { ...bill, status };
   }),
 });
@@ -121,6 +121,7 @@ const targetForPayment = (data: AppData, payment: Payment) => {
 
 export const validateWorkspace = (input: AppData): AppData => {
   const data = recalculateBillStatuses(normalizeWorkspace(input));
+  data.settings.currency = 'INR';
 
   const uniqueChecks: Array<[string, string[]]> = [
     ['supplier code', data.suppliers.map((item) => item.code)],

@@ -320,12 +320,13 @@ export interface DepartmentAnalytics {
 }
 
 export const departmentAnalytics = (data: AppData, employees: Employee[], year: number, month: number): DepartmentAnalytics[] => {
+  const periodKey = `month-${year}-${String(month).padStart(2, '0')}`;
   const map = new Map<string, DepartmentAnalytics>();
   employees.forEach((employee) => {
     const key = employee.department || 'Unassigned';
     const current = map.get(key) ?? { department: key, employees: 0, gross: 0, net: 0, presentDays: 0, absentDays: 0 };
     const attendance = summarizeAttendance(data, employee.id, year, month);
-    const breakdown = calcEmployeeSalary(data, employee, year, month, data.deductionDecisions[employee.id] ?? defaultDeductionDecision());
+    const breakdown = calcEmployeeSalary(data, employee, year, month, data.deductionDecisions[`${employee.id}_${periodKey}`] ?? defaultDeductionDecision());
     current.employees += 1;
     current.gross += employee.grossSalary;
     current.net += breakdown.net;
