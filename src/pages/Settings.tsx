@@ -25,6 +25,7 @@ export function Settings() {
     event.preventDefault();
     const next: AppSettings = {
       ...draft,
+      currency: 'INR',
       companyName: cleanText(draft.companyName),
       gstin: cleanText(draft.gstin).toUpperCase(),
       panNo: cleanText(draft.panNo).toUpperCase(),
@@ -110,7 +111,7 @@ export function Settings() {
               <label><span>Company PAN No.</span><input maxLength={10} value={draft.panNo ?? ''} onChange={(event) => setDraft({ ...draft, panNo: event.target.value.toUpperCase() })} /></label>
               <label><span>Phone *</span><input required inputMode="tel" value={draft.phone} onChange={(event) => setDraft({ ...draft, phone: event.target.value })} /></label>
               <label><span>Email *</span><input required type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></label>
-              <label><span>Currency *</span><select required value={draft.currency} onChange={(event) => setDraft({ ...draft, currency: event.target.value })}><option value="INR">INR - Indian Rupee</option><option value="USD">USD - US Dollar</option><option value="AED">AED - UAE Dirham</option></select></label>
+              <label><span>Currency</span><select value="INR" disabled aria-label="Currency"><option value="INR">INR - Indian Rupee</option></select><small>This GST build uses Indian currency and number formatting.</small></label>
               <label><span>Default tax rate % *</span><input required type="number" min="0" step="0.01" value={draft.defaultTaxRate} onChange={(event) => setDraft({ ...draft, defaultTaxRate: Number(event.target.value) })} /></label>
               <label><span>Financial year starts *</span><input required type="date" value={draft.financialYearStart} onChange={(event) => setDraft({ ...draft, financialYearStart: event.target.value })} /></label>
               <label><span>Invoice prefix *</span><input required value={draft.invoicePrefix} onChange={(event) => setDraft({ ...draft, invoicePrefix: event.target.value.toUpperCase() })} /></label>

@@ -8,7 +8,7 @@ import { SearchBar } from '../components/SearchBar';
 import { StatCard } from '../components/StatCard';
 import {
   attendanceKey, attendanceMixFor, branchAnalytics, calcEmployeeSalary, calcEmployeeSalaryForDates, currency, daysInMonth,
-  defaultDayAttendance, departmentAnalytics, downloadCsv, monthLabel, number, outstandingAdvanceFor,
+  dateInputValue, defaultDayAttendance, departmentAnalytics, downloadCsv, monthLabel, number, outstandingAdvanceFor,
   summarizeAttendance, summarizeAttendanceForDates, today, uid, weekDateParts, weekLabel,
 } from '../lib/helpers';
 import { useApp } from '../store/AppContext';
@@ -24,7 +24,7 @@ const emptyEmployee = (): Employee => ({
 });
 
 const currentYM = () => { const now = new Date(); return { year: now.getFullYear(), month: now.getMonth() + 1 }; };
-const mondayIso = (date = new Date()) => { const day = date.getDay(); const diff = day === 0 ? -6 : 1 - day; const monday = new Date(date); monday.setDate(date.getDate() + diff); return monday.toISOString().slice(0, 10); };
+const mondayIso = (date = new Date()) => { const day = date.getDay(); const diff = day === 0 ? -6 : 1 - day; const monday = new Date(date); monday.setDate(date.getDate() + diff); return dateInputValue(monday); };
 
 function dayState(entry?: DayAttendance) {
   if (!entry) return 'blank';
@@ -214,9 +214,9 @@ export function Attendance() {
               </select>
             ) : (
               <div className="week-nav">
-                <button type="button" className="icon-button" onClick={() => { const d = new Date(`${weekStart}T00:00:00`); d.setDate(d.getDate() - 7); setWeekStart(d.toISOString().slice(0, 10)); }}>‹</button>
+                <button type="button" className="icon-button" onClick={() => { const d = new Date(`${weekStart}T00:00:00`); d.setDate(d.getDate() - 7); setWeekStart(dateInputValue(d)); }}>‹</button>
                 <strong>{weekLabel(weekStart)}</strong>
-                <button type="button" className="icon-button" onClick={() => { const d = new Date(`${weekStart}T00:00:00`); d.setDate(d.getDate() + 7); setWeekStart(d.toISOString().slice(0, 10)); }}>›</button>
+                <button type="button" className="icon-button" onClick={() => { const d = new Date(`${weekStart}T00:00:00`); d.setDate(d.getDate() + 7); setWeekStart(dateInputValue(d)); }}>›</button>
               </div>
             )}
             <button className="button primary" onClick={openCreate}><UserPlus size={17} /> Add employee</button>
