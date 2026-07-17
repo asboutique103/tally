@@ -109,10 +109,10 @@ export function Layout() {
               <span className="profile-copy"><strong>{username || 'User'}</strong><small>{role ?? 'Signed in'}</small></span>
               <ChevronDown size={16} />
             </button>
-            <button className="signout-button" onClick={handleLogout} title="Sign out" aria-label="Sign out">
+            {isSupabaseConfigured && <button className="signout-button" onClick={handleLogout} title="Sign out" aria-label="Sign out">
               <LogOut size={17} />
               <span>Sign out</span>
-            </button>
+            </button>}
           </div>
         </header>
         <div className="content-area"><Outlet /></div>
