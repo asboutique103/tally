@@ -46,7 +46,7 @@ export function Sites() {
       alert('This site is already used in receipts, issues or invoices. Keep it for audit history.');
       return;
     }
-    if (confirm(`Delete ${site.name}?`)) deleteSite(site.id);
+    if (confirm(`Delete ${site.name}?`)) void deleteSite(site.id).catch(() => undefined);
   };
 
   const openCreate = () => {
@@ -61,7 +61,7 @@ export function Sites() {
     setOpen(true);
   };
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     const next: Site = {
       ...draft,
@@ -87,8 +87,12 @@ export function Sites() {
       return;
     }
 
-    upsertSite(next);
-    setOpen(false);
+    try {
+      await upsertSite(next);
+      setOpen(false);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Site could not be saved.');
+    }
   };
 
   return (

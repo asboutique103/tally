@@ -109,7 +109,7 @@ export function Payments() {
     });
   };
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     const targets = targetsFor(draft.category);
     const target = targets.find((candidate) => candidate.id === draft.targetId);
@@ -150,9 +150,13 @@ export function Payments() {
       return;
     }
 
-    addPayment(next);
-    setOpen(false);
-    setError('');
+    try {
+      await addPayment(next);
+      setOpen(false);
+      setError('');
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Payment could not be saved.');
+    }
   };
 
   const targetLabel = (payment: Payment) => {
@@ -214,7 +218,7 @@ export function Payments() {
                   <td>{payment.mode}</td>
                   <td>{payment.reference || '-'}</td>
                   <td><strong className={payment.direction === 'Received' ? 'positive-text' : ''}>{currency(payment.amount)}</strong></td>
-                  <td><button className="icon-button danger" onClick={() => confirm(`Delete ${payment.paymentNo}?`) && deletePayment(payment.id)} aria-label={`Delete ${payment.paymentNo}`}><Trash2 size={16} /></button></td>
+                  <td><button className="icon-button danger" onClick={() => { if (confirm(`Delete ${payment.paymentNo}?`)) void deletePayment(payment.id).catch(() => undefined); }} aria-label={`Delete ${payment.paymentNo}`}><Trash2 size={16} /></button></td>
                 </tr>
               ))}</tbody>
             </table>

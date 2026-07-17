@@ -49,7 +49,7 @@ export function Supplies() {
     setOpen(true);
   };
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     const next: Supply = {
       ...draft,
@@ -79,9 +79,13 @@ export function Supplies() {
       return;
     }
 
-    addSupply(next);
-    setOpen(false);
-    setError('');
+    try {
+      await addSupply(next);
+      setOpen(false);
+      setError('');
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Issue could not be saved.');
+    }
   };
 
   const printSupply = (supply: Supply) => {
@@ -130,7 +134,7 @@ export function Supplies() {
                     <div className="row-actions">
                       <button className="icon-button" onClick={() => setView(supply)} aria-label={`View ${supply.issueNo}`}><Eye size={16} /></button>
                       <button className="icon-button" onClick={() => printSupply(supply)} aria-label={`Print ${supply.issueNo}`}><Printer size={16} /></button>
-                      <button className="icon-button danger" onClick={() => confirm(`Delete ${supply.issueNo}? Stock will be restored.`) && deleteSupply(supply.id)} aria-label={`Delete ${supply.issueNo}`}><Trash2 size={16} /></button>
+                      <button className="icon-button danger" onClick={() => { if (confirm(`Delete ${supply.issueNo}? Stock will be restored.`)) void deleteSupply(supply.id).catch(() => undefined); }} aria-label={`Delete ${supply.issueNo}`}><Trash2 size={16} /></button>
                     </div>
                   </td>
                 </tr>

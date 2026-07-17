@@ -26,9 +26,11 @@ export function Accounts() {
   const empty = (): Voucher => ({ id: uid('vch'), voucherNo: nextDocumentNo('JV', data.vouchers.map((voucher) => voucher.voucherNo)), type: 'Journal', date: today(), partyName: '', reference: '', narration: '', lines: [newLine(data.accounts[0]?.id), newLine(data.accounts[1]?.id)], sourceType: 'Manual', createdAt: new Date().toISOString() });
   const [draft, setDraft] = useState<Voucher>(empty());
 
-  const vouchers = useMemo(() => allVouchers(data), [data]);
-  const balances = useMemo(() => accountBalances(data), [data]);
-  const ledger = useMemo(() => accountActivity(data, ledgerId), [data, ledgerId]);
+  const asOf = today();
+  const periodStart = data.settings.financialYearStart;
+  const vouchers = useMemo(() => allVouchers(data).filter((voucher) => voucher.date >= periodStart && voucher.date <= asOf), [asOf, data, periodStart]);
+  const balances = useMemo(() => accountBalances(data, periodStart, asOf), [asOf, data, periodStart]);
+  const ledger = useMemo(() => accountActivity(data, ledgerId, periodStart, asOf), [asOf, data, ledgerId, periodStart]);
   const ledgerAccount = data.accounts.find((account) => account.id === ledgerId);
   let running = 0;
   const income = balances.filter((account) => account.category === 'Income').reduce((sum, account) => sum + account.credit - account.debit, 0);
@@ -39,7 +41,7 @@ export function Accounts() {
   const equity = balances.filter((account) => account.category === 'Equity');
 
   const setLine = (id: string, patch: Partial<VoucherLine>) => setDraft((current) => ({ ...current, lines: current.lines.map((entry) => entry.id === id ? { ...entry, ...patch } : entry) }));
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     const totals = voucherTotals(draft);
     if (!draft.lines.length || totals.debit <= 0 || Math.abs(totals.debit - totals.credit) > 0.01) {
@@ -54,8 +56,12 @@ export function Accounts() {
       alert('Another manual voucher already uses this voucher number.');
       return;
     }
-    addVoucher(draft);
-    setOpen(false);
+    try {
+      await addVoucher(draft);
+      setOpen(false);
+    } catch (saveError) {
+      alert(saveError instanceof Error ? saveError.message : 'Voucher could not be posted.');
+    }
   };
 
   const exportCurrent = () => {
@@ -79,7 +85,7 @@ export function Accounts() {
 
     {tab === 'Balance Sheet' && <section className="financial-grid two"><p className="tab-explainer full-width">A snapshot of what the business owns (assets) versus what it owes (liabilities) and the owner's stake (equity), as of today. Assets should always equal liabilities plus equity.</p><article className="panel financial-card"><div className="panel-header"><div><span className="eyebrow">Resources</span><h2>Assets</h2></div><strong>{currency(assets.reduce((sum, account) => sum + account.net, 0))}</strong></div>{assets.map((account) => <div className="financial-row" key={account.id}><span>{account.name}</span><strong>{currency(account.net)}</strong></div>)}</article><article className="panel financial-card"><div className="panel-header"><div><span className="eyebrow">Funding</span><h2>Liabilities & equity</h2></div><strong>{currency(liabilities.reduce((sum, account) => sum - account.net, 0) + equity.reduce((sum, account) => sum - account.net, 0) + profit)}</strong></div>{liabilities.map((account) => <div className="financial-row" key={account.id}><span>{account.name}</span><strong>{currency(-account.net)}</strong></div>)}{equity.map((account) => <div className="financial-row" key={account.id}><span>{account.name}</span><strong>{currency(-account.net)}</strong></div>)}<div className="financial-row total"><span>Current period profit / loss</span><strong>{currency(profit)}</strong></div></article></section>}
 
-    {tab === 'Manual Vouchers' && <section className="panel table-panel"><div className="panel-header"><div><span className="eyebrow">User-entered accounting</span><h2>Manual vouchers</h2><p className="tab-explainer">For anything that isn't already captured by a bill, site issue or payment — for example recording an owner's capital injection, a bank charge, or correcting an entry.</p></div><button className="button primary" onClick={() => { setDraft(empty()); setOpen(true); }}><Plus size={17}/> New voucher</button></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Voucher</th><th>Type</th><th>Party</th><th>Debit</th><th>Credit</th><th/></tr></thead><tbody>{data.vouchers.map((voucher) => { const totals = voucherTotals(voucher); return <tr key={voucher.id}><td><strong>{voucher.voucherNo}</strong><span>{new Date(voucher.date).toLocaleDateString('en-IN')}</span></td><td>{voucher.type}</td><td><strong>{voucher.partyName || '—'}</strong><span>{voucher.narration}</span></td><td>{currency(totals.debit)}</td><td>{currency(totals.credit)}</td><td><button className="icon-button danger" onClick={() => confirm(`Delete ${voucher.voucherNo}?`) && deleteVoucher(voucher.id)}><Trash2 size={16}/></button></td></tr>; })}</tbody></table></div></section>}
+    {tab === 'Manual Vouchers' && <section className="panel table-panel"><div className="panel-header"><div><span className="eyebrow">User-entered accounting</span><h2>Manual vouchers</h2><p className="tab-explainer">For anything that isn't already captured by a bill, site issue or payment — for example recording an owner's capital injection, a bank charge, or correcting an entry.</p></div><button className="button primary" onClick={() => { setDraft(empty()); setOpen(true); }}><Plus size={17}/> New voucher</button></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Voucher</th><th>Type</th><th>Party</th><th>Debit</th><th>Credit</th><th/></tr></thead><tbody>{data.vouchers.map((voucher) => { const totals = voucherTotals(voucher); return <tr key={voucher.id}><td><strong>{voucher.voucherNo}</strong><span>{new Date(voucher.date).toLocaleDateString('en-IN')}</span></td><td>{voucher.type}</td><td><strong>{voucher.partyName || '—'}</strong><span>{voucher.narration}</span></td><td>{currency(totals.debit)}</td><td>{currency(totals.credit)}</td><td><button className="icon-button danger" onClick={() => { if (confirm(`Delete ${voucher.voucherNo}?`)) void deleteVoucher(voucher.id).catch(() => undefined); }}><Trash2 size={16}/></button></td></tr>; })}</tbody></table></div></section>}
 
     <Modal open={open} title="Post manual voucher" subtitle="Every voucher must balance. Debit total must equal credit total." onClose={() => setOpen(false)} wide><form className="form-stack" onSubmit={submit}><div className="form-grid three"><label><span>Voucher number *</span><input required value={draft.voucherNo} onChange={(event) => setDraft({ ...draft, voucherNo: event.target.value })}/></label><label><span>Voucher type</span><select value={draft.type} onChange={(event) => setDraft({ ...draft, type: event.target.value as VoucherType })}>{(['Journal', 'Contra', 'Receipt', 'Payment', 'Debit Note', 'Credit Note'] as VoucherType[]).map((type) => <option key={type}>{type}</option>)}</select></label><label><span>Date *</span><input required type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })}/></label><label><span>Party / payee</span><input value={draft.partyName} onChange={(event) => setDraft({ ...draft, partyName: event.target.value })}/></label><label><span>Reference</span><input value={draft.reference} onChange={(event) => setDraft({ ...draft, reference: event.target.value })}/></label><label><span>Narration</span><input value={draft.narration} onChange={(event) => setDraft({ ...draft, narration: event.target.value })}/></label></div><div className="voucher-lines"><div className="voucher-line heading"><span>Account</span><span>Debit</span><span>Credit</span><span/></div>{draft.lines.map((entry) => <div className="voucher-line" key={entry.id}><select value={entry.accountId} onChange={(event) => setLine(entry.id, { accountId: event.target.value })}><option value="">Select account</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.code} — {account.name}</option>)}</select><input type="number" min="0" step="0.01" value={entry.debit || ''} onChange={(event) => setLine(entry.id, { debit: Number(event.target.value), credit: Number(event.target.value) ? 0 : entry.credit })}/><input type="number" min="0" step="0.01" value={entry.credit || ''} onChange={(event) => setLine(entry.id, { credit: Number(event.target.value), debit: Number(event.target.value) ? 0 : entry.debit })}/><button type="button" className="icon-button danger" onClick={() => setDraft({ ...draft, lines: draft.lines.filter((line) => line.id !== entry.id) })}><Trash2 size={16}/></button></div>)}<button type="button" className="button secondary" onClick={() => setDraft({ ...draft, lines: [...draft.lines, newLine()] })}><Plus size={16}/> Add line</button></div><div className="document-total"><span>Debit {currency(voucherTotals(draft).debit)}</span><span>Credit {currency(voucherTotals(draft).credit)}</span><strong>Difference {currency(Math.abs(voucherTotals(draft).debit - voucherTotals(draft).credit))}</strong></div><div className="form-actions"><button type="button" className="button secondary" onClick={() => setOpen(false)}>Cancel</button><button className="button primary">Post voucher</button></div></form></Modal>
   </div>;

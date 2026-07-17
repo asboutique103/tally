@@ -46,7 +46,7 @@ export function Receipts() {
     setOpen(true);
   };
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     const next: Receipt = {
       ...draft,
@@ -78,8 +78,12 @@ export function Receipts() {
       return;
     }
 
-    addReceipt(next);
-    setOpen(false);
+    try {
+      await addReceipt(next);
+      setOpen(false);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Receipt could not be saved.');
+    }
   };
 
   return (
@@ -125,7 +129,7 @@ export function Receipts() {
                   <td>
                     <div className="row-actions">
                       <button className="icon-button" onClick={() => setView(receipt)} aria-label={`View ${receipt.receiptNo}`}><Eye size={16} /></button>
-                      <button className="icon-button danger" onClick={() => confirm(`Delete ${receipt.receiptNo}? Stock will be recalculated.`) && deleteReceipt(receipt.id)} aria-label={`Delete ${receipt.receiptNo}`}><Trash2 size={16} /></button>
+                      <button className="icon-button danger" onClick={() => { if (confirm(`Delete ${receipt.receiptNo}? Stock will be recalculated.`)) void deleteReceipt(receipt.id).catch(() => undefined); }} aria-label={`Delete ${receipt.receiptNo}`}><Trash2 size={16} /></button>
                     </div>
                   </td>
                 </tr>

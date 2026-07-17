@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type FormEvent } from 'react';
+import { Fragment, useCallback, useMemo, useState, type FormEvent } from 'react';
 import { Ban, Check, CreditCard, Download, Pencil, Plus, TrendingUp, Trash2, UserPlus, Users } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { EmptyState } from '../components/EmptyState';
@@ -56,20 +56,19 @@ export function Attendance() {
   const label = monthLabel(year, month);
   const weekParts = useMemo(() => weekDateParts(weekStart), [weekStart]);
   const periodLabel = payCycleView === 'Weekly' ? weekLabel(weekStart) : label;
-  const activeEmployees = data.employees.filter((e) => e.status === 'Active');
-  const cycleEmployees = activeEmployees.filter((e) => e.payCycle === payCycleView);
+  const periodKey = payCycleView === 'Weekly' ? `week-${weekStart}` : `month-${year}-${String(month).padStart(2, '0')}`;
+  const activeEmployees = useMemo(() => data.employees.filter((e) => e.status === 'Active'), [data.employees]);
+  const cycleEmployees = useMemo(() => activeEmployees.filter((e) => e.payCycle === payCycleView), [activeEmployees, payCycleView]);
   const filtered = useMemo(
     () => cycleEmployees.filter((e) => `${e.name} ${e.department} ${e.code}`.toLowerCase().includes(query.toLowerCase())),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [cycleEmployees, query],
   );
   const allFiltered = useMemo(
     () => activeEmployees.filter((e) => `${e.name} ${e.department} ${e.code}`.toLowerCase().includes(query.toLowerCase())),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeEmployees, query],
   );
 
-  const getDecision = (employeeId: string): DeductionDecision => app.getDeductionDecision(employeeId);
+  const getDecision = useCallback((employeeId: string): DeductionDecision => app.getDeductionDecision(employeeId, periodKey), [app, periodKey]);
 
   const cycleDay = (emp: Employee, day: number) => {
     const key = attendanceKey(emp.id, year, month, day);
@@ -80,7 +79,7 @@ export function Attendance() {
     else if (state === 'absent') next = { present: false, absent: false, half: true, woff: false };
     else if (state === 'half') next = { present: false, absent: false, half: false, woff: true };
     else next = defaultDayAttendance();
-    app.setAttendanceDay(emp.id, year, month, day, next);
+    void app.setAttendanceDay(emp.id, year, month, day, next).catch(() => undefined);
   };
 
   const cycleDatePart = (emp: Employee, part: { year: number; month: number; day: number }) => {
@@ -92,7 +91,7 @@ export function Attendance() {
     else if (state === 'absent') next = { present: false, absent: false, half: true, woff: false };
     else if (state === 'half') next = { present: false, absent: false, half: false, woff: true };
     else next = defaultDayAttendance();
-    app.setAttendanceDay(emp.id, part.year, part.month, part.day, next);
+    void app.setAttendanceDay(emp.id, part.year, part.month, part.day, next).catch(() => undefined);
   };
 
   const salaryRows = useMemo(
@@ -101,8 +100,7 @@ export function Attendance() {
       breakdown: payCycleView === 'Weekly' ? calcEmployeeSalaryForDates(data, e, weekParts, getDecision(e.id)) : calcEmployeeSalary(data, e, year, month, getDecision(e.id)),
       attendance: payCycleView === 'Weekly' ? summarizeAttendanceForDates(data, e.id, weekParts) : summarizeAttendance(data, e.id, year, month),
     })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filtered, data, year, month, payCycleView, weekParts],
+    [filtered, data, year, month, payCycleView, weekParts, getDecision],
   );
 
   const salarySummary = salaryRows.reduce((acc, row) => ({
@@ -115,14 +113,26 @@ export function Attendance() {
 
   const openCreate = () => { setDraft({ ...emptyEmployee(), code: `EMP-${String(data.employees.length + 1).padStart(3, '0')}` }); setModalOpen(true); };
   const openEdit = (emp: Employee) => { setDraft(emp); setModalOpen(true); };
-  const submitEmployee = (event: FormEvent) => { event.preventDefault(); app.upsertEmployee(draft); setModalOpen(false); };
-  const removeEmployee = (emp: Employee) => { if (confirm(`Remove ${emp.name}?`)) app.upsertEmployee({ ...emp, status: 'Inactive' }); };
+  const submitEmployee = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      await app.upsertEmployee(draft);
+      setModalOpen(false);
+    } catch {
+      // The shared sync banner displays the actionable save failure.
+    }
+  };
+  const removeEmployee = (emp: Employee) => { if (confirm(`Remove ${emp.name}?`)) void app.upsertEmployee({ ...emp, status: 'Inactive' }).catch(() => undefined); };
 
-  const submitAdvance = (event: FormEvent) => {
+  const submitAdvance = async (event: FormEvent) => {
     event.preventDefault();
     if (!advanceModal || advanceAmount <= 0 || !advanceDate) return;
-    app.addSalaryAdvance({ id: uid('adv'), employeeId: advanceModal.id, amount: advanceAmount, givenDate: advanceDate, note: advanceReason, cleared: false, createdAt: new Date().toISOString() });
-    setAdvanceModal(null); setAdvanceAmount(0); setAdvanceDate(today()); setAdvanceReason('');
+    try {
+      await app.addSalaryAdvance({ id: uid('adv'), employeeId: advanceModal.id, amount: advanceAmount, givenDate: advanceDate, note: advanceReason, cleared: false, createdAt: new Date().toISOString() });
+      setAdvanceModal(null); setAdvanceAmount(0); setAdvanceDate(today()); setAdvanceReason('');
+    } catch {
+      // The shared sync banner displays the actionable save failure.
+    }
   };
 
   const exportAttendance = () => {
@@ -134,10 +144,10 @@ export function Attendance() {
       const summary = summarizeAttendance(data, employee.id, year, month);
       const breakdown = calcEmployeeSalary(data, employee, year, month, getDecision(employee.id));
       const advanceList = data.salaryAdvances
-        .filter((advance) => advance.employeeId === employee.id && advance.givenDate.startsWith(`${year}-${String(month).padStart(2, '0')}`))
+        .filter((advance) => advance.employeeId === employee.id && !advance.cleared)
         .sort((a, b) => a.givenDate.localeCompare(b.givenDate));
-      const advanceAmount = advanceList.reduce((sum, advance) => sum + advance.amount, 0);
-      const advanceDetails = advanceList.map((advance) => `${advance.givenDate}: ₹${number(advance.amount)}${advance.note ? ` - ${advance.note}` : ''}`).join('<br/>');
+      const advanceAmount = breakdown.advanceDeduction;
+      const advanceDetails = advanceList.map((advance) => escapeHtml(`${advance.givenDate}: ₹${number(advance.amount)}${advance.note ? ` - ${advance.note}` : ''}`)).join('<br/>');
       return { employee, index, summary, breakdown, advanceAmount, advanceDetails };
     });
     const headerCells = dayColumns.map((day, index) => `<th class="${new Date(year, month - 1, day).getDay() === 0 ? 'sun' : ''}">${escapeHtml(dayNames[index])}<br/>${day}</th>`).join('');
@@ -146,7 +156,7 @@ export function Attendance() {
         const state = dayState(data.attendance[attendanceKey(employee.id, year, month, day)]);
         return `<td class="mark ${state}">${escapeHtml(DAY_LABEL[state])}</td>`;
       }).join('');
-      return `<tr><td>${index + 1}</td><td class="name">${escapeHtml(employee.name)}</td>${attendanceCells}<td>${summary.presentDays}</td><td>${summary.weekOffs}</td><td>${summary.halfDays}</td><td>${number(summary.workingDays, 1)}</td><td>${number(summary.payableDays, 1)}</td><td>${number(breakdown.perDay)}</td><td>${number(advanceAmount)}</td><td>${number(Math.max(0, breakdown.earned - advanceAmount))}</td><td class="reason">${advanceDetails || '—'}</td></tr>`;
+      return `<tr><td>${index + 1}</td><td class="name">${escapeHtml(employee.name)}</td>${attendanceCells}<td>${summary.presentDays}</td><td>${summary.weekOffs}</td><td>${summary.halfDays}</td><td>${number(summary.workingDays, 1)}</td><td>${number(summary.payableDays, 1)}</td><td>${number(breakdown.perDay)}</td><td>${number(advanceAmount)}</td><td>${number(breakdown.net)}</td><td class="reason">${advanceDetails || '—'}</td></tr>`;
     }).join('');
     const html = `<!doctype html><html><head><meta charset="utf-8"/><style>
       table{border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;font-size:11px}td,th{border:1px solid #333;padding:4px;text-align:center;vertical-align:middle}.title{font-size:16px;font-weight:700;color:#c00000}.address{font-size:12px;color:#1f4e79}.meta{font-weight:700;text-align:left}.name{text-align:left;font-weight:700;min-width:160px}.sun{background:#ff0000;color:#fff}.mark.present{color:#111}.mark.absent{background:#ff1a1a;color:#111}.mark.half{background:#fff2cc}.mark.leave{background:#ffe699}.reason{min-width:200px;text-align:left}.summary{background:#a9d18e;font-weight:700}.empty{border:none}
@@ -327,10 +337,10 @@ export function Attendance() {
                         <td>{number(attendance.payableDays, 1)}</td>
                         <td><strong>{currency(b.earned)}</strong></td>
                         <td>
-                          <label className="deduction-toggle"><input type="checkbox" checked={decision.deductAdvance} onChange={(ev) => app.setDeductionDecision(e.id, { ...decision, deductAdvance: ev.target.checked })} /> {currency(b.advanceDeduction)}</label>
+                          <label className="deduction-toggle"><input type="checkbox" checked={decision.deductAdvance} onChange={(ev) => void app.setDeductionDecision(e.id, periodKey, { ...decision, deductAdvance: ev.target.checked }).catch(() => undefined)} /> {currency(b.advanceDeduction)}</label>
                         </td>
                         <td>
-                          <label className="deduction-toggle"><input type="checkbox" checked={decision.deductOther} onChange={(ev) => app.setDeductionDecision(e.id, { ...decision, deductOther: ev.target.checked })} /> {currency(b.otherDeduction)}</label>
+                          <label className="deduction-toggle"><input type="checkbox" checked={decision.deductOther} onChange={(ev) => void app.setDeductionDecision(e.id, periodKey, { ...decision, deductOther: ev.target.checked }).catch(() => undefined)} /> {currency(b.otherDeduction)}</label>
                         </td>
                         <td><strong className="positive-text">{currency(b.net)}</strong></td>
                         <td className="negative-text">-{currency(b.totalDeductions)}</td>
@@ -367,7 +377,7 @@ export function Attendance() {
                         <td>{advance.givenDate}</td>
                         <td>{advance.note || '—'}</td>
                         <td><span className={`status-pill ${advance.cleared ? 'success' : 'warning'}`}>{advance.cleared ? 'Cleared' : 'Outstanding'}</span></td>
-                        <td>{!advance.cleared && <button className="button secondary" onClick={() => app.clearSalaryAdvance(advance.id)}>Mark cleared</button>}</td>
+                        <td>{!advance.cleared && <button className="button secondary" onClick={() => void app.clearSalaryAdvance(advance.id).catch(() => undefined)}>Mark cleared</button>}</td>
                       </tr>
                     );
                   })}

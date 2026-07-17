@@ -1,20 +1,27 @@
-import { Save } from 'lucide-react';
+import { KeyRound, Save } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { PageHeader } from '../components/PageHeader';
 import { cleanText, compactPhone, isFilled, isValidGstin, isValidIndianPhone, isZeroOrPositive } from '../lib/validation';
+import { isSupabaseConfigured } from '../lib/supabase';
 import { useApp } from '../store/AppContext';
+import { useAuth } from '../store/AuthContext';
 import type { AppSettings } from '../types';
 
 const isValidPan = (value?: string) => !value || /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(value);
 const isValidIfsc = (value?: string) => !value || /^[A-Z]{4}0[A-Z0-9]{6}$/.test(value);
 
 export function Settings() {
-  const { data, setData } = useApp();
+  const { data, saving, updateSettings } = useApp();
+  const { changePassword } = useAuth();
   const [draft, setDraft] = useState(data.settings);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
+  const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' });
+  const [passwordStatus, setPasswordStatus] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     const next: AppSettings = {
       ...draft,
@@ -60,10 +67,33 @@ export function Settings() {
       return;
     }
 
-    setData((current) => ({ ...current, settings: next }));
-    setError('');
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1800);
+    try {
+      await updateSettings(next);
+      setError('');
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1800);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Settings could not be saved.');
+    }
+  };
+
+  const submitPassword = async (event: FormEvent) => {
+    event.preventDefault();
+    setPasswordStatus('');
+    if (passwords.next !== passwords.confirm) {
+      setPasswordError('The new password and confirmation do not match.');
+      return;
+    }
+    setChangingPassword(true);
+    const result = await changePassword(passwords.current, passwords.next);
+    setChangingPassword(false);
+    if (!result.ok) {
+      setPasswordError(result.error ?? 'The password could not be changed.');
+      return;
+    }
+    setPasswordError('');
+    setPasswordStatus('Password changed successfully. Other sessions have been signed out.');
+    setPasswords({ current: '', next: '', confirm: '' });
   };
 
   return (
@@ -92,9 +122,24 @@ export function Settings() {
               <label className="toggle-label span-2"><input type="checkbox" checked={draft.lowStockAlerts} onChange={(event) => setDraft({ ...draft, lowStockAlerts: event.target.checked })} /><span><strong>Low-stock alerts</strong><small>Show warnings when available quantity reaches the material reorder level.</small></span></label>
               <label className="toggle-label span-2"><input type="checkbox" checked={draft.strictStockControl} onChange={(event) => setDraft({ ...draft, strictStockControl: event.target.checked })} /><span><strong>Strict stock control</strong><small>Prevent material issues and auto-posting client invoices from creating negative stock.</small></span></label>
             </div>
-            <div className="form-actions"><span className={saved ? 'save-message visible' : 'save-message'}>Settings saved</span><button className="button primary"><Save size={17} /> Save settings</button></div>
+              <div className="form-actions"><span className={saved ? 'save-message visible' : 'save-message'}>Settings saved</span><button className="button primary" disabled={saving}><Save size={17} /> {saving ? 'Saving…' : 'Save settings'}</button></div>
           </form>
         </article>
+        {isSupabaseConfigured && (
+          <article className="panel">
+            <div className="panel-header"><div><span className="eyebrow">Account security</span><h2>Change password</h2></div><KeyRound size={20} /></div>
+            <form className="form-stack" onSubmit={submitPassword}>
+              {passwordError && <div className="alert danger-alert">{passwordError}</div>}
+              {passwordStatus && <div className="alert">{passwordStatus}</div>}
+              <div className="form-grid two">
+                <label><span>Current password *</span><input required type="password" autoComplete="current-password" value={passwords.current} onChange={(event) => setPasswords({ ...passwords, current: event.target.value })} /></label>
+                <label><span>New password *</span><input required minLength={12} type="password" autoComplete="new-password" value={passwords.next} onChange={(event) => setPasswords({ ...passwords, next: event.target.value })} /></label>
+                <label><span>Confirm new password *</span><input required minLength={12} type="password" autoComplete="new-password" value={passwords.confirm} onChange={(event) => setPasswords({ ...passwords, confirm: event.target.value })} /></label>
+              </div>
+              <div className="form-actions"><button className="button secondary" disabled={changingPassword}><KeyRound size={17} /> {changingPassword ? 'Changing…' : 'Change password'}</button></div>
+            </form>
+          </article>
+        )}
       </section>
     </div>
   );

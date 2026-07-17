@@ -61,7 +61,7 @@ export function Bills() {
     [data.bills, filter, query],
   );
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     const next: Bill = {
       ...draft,
@@ -114,9 +114,13 @@ export function Bills() {
         return;
       }
     }
-    addBill(next);
-    setOpen(false);
-    setError('');
+    try {
+      await addBill(next);
+      setOpen(false);
+      setError('');
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Bill could not be saved.');
+    }
   };
 
   const changeType = (type: BillType) => {
@@ -188,7 +192,7 @@ export function Bills() {
                   <td><strong className={balance > 0 ? 'negative-text' : 'positive-text'}>{currency(balance)}</strong></td>
                   <td><span className={`soft-badge ${bill.inventoryPosting === 'Auto Post' ? '' : 'warning-badge'}`}>{bill.inventoryPosting}</span></td>
                   <td><span className={`status-pill status-${bill.status.toLowerCase().replaceAll(' ', '-')}`}>{bill.status}</span></td>
-                  <td><div className="row-actions"><button className="icon-button" onClick={() => setView(bill)}><Eye size={16} /></button><button className="icon-button" onClick={() => printBill(bill)}><Printer size={16} /></button><button className="icon-button danger" onClick={() => confirm(`Delete ${bill.billNo}?`) && deleteBill(bill.id)}><Trash2 size={16} /></button></div></td>
+                  <td><div className="row-actions"><button className="icon-button" onClick={() => setView(bill)}><Eye size={16} /></button><button className="icon-button" onClick={() => printBill(bill)}><Printer size={16} /></button><button className="icon-button danger" onClick={() => { if (confirm(`Delete ${bill.billNo}?`)) void deleteBill(bill.id).catch(() => undefined); }}><Trash2 size={16} /></button></div></td>
                 </tr>
               );
             })}</tbody>

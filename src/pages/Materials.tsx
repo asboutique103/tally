@@ -1,10 +1,10 @@
-import { AlertTriangle, Download, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Download, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '../components/EmptyState';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
-import { currency, downloadCsv, inventoryRows, number, uid } from '../lib/helpers';
+import { downloadCsv, inventoryRows, number, uid } from '../lib/helpers';
 import { cleanText, hasDuplicate, isFilled } from '../lib/validation';
 import { useApp } from '../store/AppContext';
 import type { InventoryRow, Material, Unit } from '../types';
@@ -61,7 +61,7 @@ export function Materials() {
       alert('This material is already used in receipts, issues or invoices. Keep it for audit history.');
       return;
     }
-    if (confirm(`Delete ${item.name}?`)) deleteMaterial(item.id);
+    if (confirm(`Delete ${item.name}?`)) void deleteMaterial(item.id).catch(() => undefined);
   };
 
   const openCreate = () => {
@@ -76,7 +76,7 @@ export function Materials() {
     setModalOpen(true);
   };
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     const next: Material = {
       ...draft,
@@ -96,8 +96,12 @@ export function Materials() {
       return;
     }
 
-    upsertMaterial(next);
-    setModalOpen(false);
+    try {
+      await upsertMaterial(next);
+      setModalOpen(false);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Material could not be saved.');
+    }
   };
 
   return (

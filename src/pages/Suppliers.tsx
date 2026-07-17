@@ -45,7 +45,7 @@ export function Suppliers() {
       alert('This supplier is already used in receipts or bills. Keep it for audit history.');
       return;
     }
-    if (confirm(`Delete ${supplier.name}?`)) deleteSupplier(supplier.id);
+    if (confirm(`Delete ${supplier.name}?`)) void deleteSupplier(supplier.id).catch(() => undefined);
   };
 
   const openCreate = () => {
@@ -60,7 +60,7 @@ export function Suppliers() {
     setOpen(true);
   };
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     const next: Supplier = {
       ...draft,
@@ -95,8 +95,12 @@ export function Suppliers() {
       return;
     }
 
-    upsertSupplier(next);
-    setOpen(false);
+    try {
+      await upsertSupplier(next);
+      setOpen(false);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Supplier could not be saved.');
+    }
   };
 
   return (
