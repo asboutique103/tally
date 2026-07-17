@@ -25,5 +25,5 @@ export const ROUTE_ACCESS: Record<string, Role[]> = {
 
 export const canRoleAccess = (role: Role | null, path: string) => {
   if (!role) return false;
-  return (ROUTE_ACCESS[path] ?? ALL_ROLES).includes(role);
+  return (ROUTE_ACCESS[path] ?? []).includes(role);
 };

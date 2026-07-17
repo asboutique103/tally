@@ -183,14 +183,8 @@ export const inventoryRows = (data: AppData): InventoryRow[] => {
 const line = (accountId: string, debit = 0, credit = 0, narration = ''): VoucherLine => ({ id: uid('vl'), accountId, debit, credit, narration });
 const cleanLines = (lines: VoucherLine[]) => lines.filter((entry) => Math.abs(entry.debit) > 0.0001 || Math.abs(entry.credit) > 0.0001);
 
-/**
- * Bills, supplies, and payments already generate correctly-linked accounting
- * vouchers server-side (via database triggers, using real ledger_accounts
- * UUIDs) — those come back in data.vouchers from get_workspace. This
- * function only needs to add the one thing the server doesn't compute: a
- * synthetic "opening balances" voucher representing account opening
- * balances, material opening stock value, and supplier opening balances.
- */
+/** Bills, supplies, and payments already create linked vouchers in Postgres.
+ * Only the synthetic opening-balance entry is calculated in the browser. */
 export const allVouchers = (data: AppData): Voucher[] => {
   const findAccountByCode = (code: string) => data.accounts.find((account) => account.code === code);
 
@@ -223,25 +217,28 @@ export const voucherTotals = (voucher: Voucher) => ({
   credit: voucher.lines.reduce((sum, entry) => sum + entry.credit, 0),
 });
 
-export const accountActivity = (data: AppData, accountId: string) => allVouchers(data).flatMap((voucher) =>
+export const accountActivity = (data: AppData, accountId: string, from?: string, to?: string) => allVouchers(data)
+  .filter((voucher) => (!from || voucher.date >= from) && (!to || voucher.date <= to)).flatMap((voucher) =>
   voucher.lines.filter((entry) => entry.accountId === accountId).map((entry) => ({ voucher, ...entry })),
 ).sort((a, b) => a.voucher.date.localeCompare(b.voucher.date) || a.voucher.voucherNo.localeCompare(b.voucher.voucherNo));
 
-export const accountBalances = (data: AppData) => data.accounts.map((account) => {
-  const activity = accountActivity(data, account.id);
+export const accountBalances = (data: AppData, from?: string, to?: string) => data.accounts.map((account) => {
+  const activity = accountActivity(data, account.id, from, to);
   const debit = activity.reduce((sum, entry) => sum + entry.debit, 0);
   const credit = activity.reduce((sum, entry) => sum + entry.credit, 0);
   return { ...account, debit, credit, net: debit - credit };
 });
 
+export const csvCell = (value: unknown) => {
+  const raw = String(value ?? '');
+  const text = typeof value === 'string' && /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
+  return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+};
+
 export const downloadCsv = (filename: string, rows: Record<string, unknown>[]) => {
   if (!rows.length) return;
   const headers = Object.keys(rows[0]);
-  const escape = (value: unknown) => {
-    const text = String(value ?? '');
-    return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-  };
-  const csv = [headers.map(escape).join(','), ...rows.map((row) => headers.map((key) => escape(row[key])).join(','))].join('\r\n');
+  const csv = [headers.map(csvCell).join(','), ...rows.map((row) => headers.map((key) => csvCell(row[key])).join(','))].join('\r\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
