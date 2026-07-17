@@ -3,6 +3,7 @@ import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import type { Role } from '../types';
 
 const AUTH_KEY = 'constructflow-auth-v4';
+const LOCAL_USER: AuthUser = { sessionToken: 'local-workspace', username: 'Local Owner', role: 'Owner' };
 
 interface AuthUser {
   sessionToken: string;
@@ -19,6 +20,7 @@ interface AuthContextValue {
   sessionToken: string | null;
   canAccess: (allowedRoles?: Role[]) => boolean;
   login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
 }
 
@@ -66,14 +68,18 @@ const storeAuth = (auth: AuthUser) => sessionStorage.setItem(AUTH_KEY, JSON.stri
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [authUser, setAuthUser] = useState<AuthUser | null>(() => isSupabaseConfigured ? parseStoredAuth() : null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(() => isSupabaseConfigured ? parseStoredAuth() : LOCAL_USER);
   const [loading, setLoading] = useState(() => Boolean(isSupabaseConfigured && parseStoredAuth()));
 
   useEffect(() => {
     const stored = parseStoredAuth();
     if (!stored || !isSupabaseConfigured || !supabase) {
-      if (!isSupabaseConfigured) sessionStorage.removeItem(AUTH_KEY);
-      setAuthUser(null);
+      if (!isSupabaseConfigured) {
+        sessionStorage.removeItem(AUTH_KEY);
+        setAuthUser(LOCAL_USER);
+      } else {
+        setAuthUser(null);
+      }
       setLoading(false);
       return;
     }
@@ -112,13 +118,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (username: string, password: string): Promise<{ ok: boolean; error?: string }> => {
     if (!isSupabaseConfigured || !supabase) {
-      return { ok: false, error: 'Supabase login is not configured.' };
+      setAuthUser(LOCAL_USER);
+      return { ok: true };
     }
 
-    const { data, error } = await supabase.rpc('login_app_user', {
-      p_username: username,
-      p_password: password,
-    });
+    let data: unknown;
+    let error: { message: string } | null;
+    try {
+      const response = await supabase.rpc('login_app_user', { p_username: username, p_password: password });
+      data = response.data;
+      error = response.error;
+    } catch {
+      return { ok: false, error: 'Unable to reach the sign-in service. Check your connection and try again.' };
+    }
 
     if (error) {
       console.error('Unable to verify app login', error.message);
@@ -143,11 +155,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    if (!isSupabaseConfigured) {
+      setAuthUser(LOCAL_USER);
+      return;
+    }
     const token = authUser?.sessionToken;
     sessionStorage.removeItem(AUTH_KEY);
     setAuthUser(null);
     if (token && isSupabaseConfigured && supabase) {
       void supabase.rpc('logout_app_user', { p_session_token: token });
+    }
+  };
+
+  const changePassword = async (currentPassword: string, newPassword: string): Promise<{ ok: boolean; error?: string }> => {
+    if (!isSupabaseConfigured || !supabase) {
+      return { ok: false, error: 'Password management is available only when cloud sync is enabled.' };
+    }
+    if (!authUser?.sessionToken) return { ok: false, error: 'Your session has expired. Sign in again.' };
+    if (newPassword.length < 12) return { ok: false, error: 'The new password must contain at least 12 characters.' };
+
+    try {
+      const { data, error } = await supabase.rpc('change_app_password', {
+        p_session_token: authUser.sessionToken,
+        p_current_password: currentPassword,
+        p_new_password: newPassword,
+      });
+      if (error) return { ok: false, error: 'The password could not be changed. Run the latest Supabase SQL and try again.' };
+      const result = (Array.isArray(data) ? data[0] : data) as { ok?: boolean; message?: string | null } | undefined;
+      if (!result?.ok) return { ok: false, error: result?.message ?? 'The current password is incorrect.' };
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Unable to reach the password service. Check your connection and try again.' };
     }
   };
 
@@ -159,6 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sessionToken: authUser?.sessionToken ?? null,
     canAccess: (allowedRoles?: Role[]) => Boolean(authUser && (!allowedRoles?.length || allowedRoles.includes(authUser.role))),
     login,
+    changePassword,
     logout,
   };
 
