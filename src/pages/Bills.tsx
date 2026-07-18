@@ -42,6 +42,7 @@ export function Bills() {
       otherCharges: 0,
       gstEnabled: false,
       gstRate: data.settings.defaultTaxRate || 18,
+      gstType: 'CGST_SGST',
       notes: '',
       status: 'Unpaid',
       inventoryPosting: 'Auto Post',
@@ -77,6 +78,7 @@ export function Bills() {
       discount: draft.discount || 0,
       otherCharges: draft.otherCharges || 0,
       gstRate: draft.gstEnabled ? (draft.gstRate || 0) : 0,
+      gstType: draft.gstEnabled ? (draft.gstType || 'CGST_SGST') : 'CGST_SGST',
     };
 
     if (!isFilled(next.billNo) || !isFilled(next.date) || !isFilled(next.dueDate) || !isFilled(next.partyName) || !isFilled(next.partyAddress) || !isFilled(next.state)) {
@@ -186,7 +188,7 @@ export function Bills() {
                   <td><strong>{bill.billNo}</strong><span>Due {formatDate(bill.dueDate)}</span></td>
                   <td><span className={`soft-badge ${bill.type === 'Purchase' ? 'warning-badge' : ''}`}>{bill.type}</span><span>{formatDate(bill.date)}</span></td>
                   <td><strong>{bill.partyName}</strong><span>{bill.partyGstin ? `GSTIN ${bill.partyGstin}` : bill.type === 'Purchase' ? 'Supplier payable' : 'Client receivable'}</span></td>
-                  <td><span className={`soft-badge ${bill.gstEnabled ? '' : 'warning-badge'}`}>{bill.gstEnabled ? `${bill.gstRate}%` : 'No GST'}</span></td>
+                  <td><span className={`soft-badge ${bill.gstEnabled ? '' : 'warning-badge'}`}>{bill.gstEnabled ? `${bill.gstRate}% ${bill.gstType === 'IGST' ? 'IGST' : 'GST'}` : 'No GST'}</span></td>
                   <td><strong>{currency(total)}</strong></td>
                   <td>{currency(total - balance)}</td>
                   <td><strong className={balance > 0 ? 'negative-text' : 'positive-text'}>{currency(balance)}</strong></td>
@@ -235,6 +237,12 @@ export function Bills() {
           <div className="form-grid three">
             <label className="toggle-label span-2"><input type="checkbox" checked={draft.gstEnabled} onChange={(event) => setDraft({ ...draft, gstEnabled: event.target.checked })} /><span><strong>Include GST on this bill</strong><small>Turn on to charge GST. Taxable amount and GST auto-calculate below.</small></span></label>
             {draft.gstEnabled && <label><span>GST % *</span><input required type="number" min="0" step="0.01" value={draft.gstRate} onChange={(event) => setDraft({ ...draft, gstRate: Number(event.target.value) })} /></label>}
+            {draft.gstEnabled && (
+              <label className="toggle-label">
+                <input type="checkbox" checked={draft.gstType === 'IGST'} onChange={(event) => setDraft({ ...draft, gstType: event.target.checked ? 'IGST' : 'CGST_SGST' })} />
+                <span><strong>Inter-state (IGST)</strong><small>When on, GST prints as a single IGST line instead of split CGST/SGST.</small></span>
+              </label>
+            )}
           </div>
           <div className="document-total">
             <span>Taxable amount {currency(taxableAmount(draft.items))}</span>
@@ -299,11 +307,12 @@ export function Bills() {
                   {Array.from({ length: Math.max(0, 6 - view.items.length) }, (_, index) => <tr key={`blank-${index}`}><td>&nbsp;</td><td /><td /><td /><td /><td /></tr>)}
                 </tbody>
                 <tfoot>
-                  <tr><td colSpan={2} rowSpan={view.gstEnabled ? 6 : 4} className="vmv-words"><strong>Amount in word Rupees:</strong> {amountInIndianWords(grandTotal)}</td><td /><td colSpan={2}><strong>Taxable Amount</strong></td><td><strong>{numberForInvoice(subtotal)}</strong></td></tr>
+                  <tr><td colSpan={2} rowSpan={view.gstEnabled ? (view.gstType === 'IGST' ? 5 : 6) : 4} className="vmv-words"><strong>Amount in word Rupees:</strong> {amountInIndianWords(grandTotal)}</td><td /><td colSpan={2}><strong>Taxable Amount</strong></td><td><strong>{numberForInvoice(subtotal)}</strong></td></tr>
                   <tr><td /><td colSpan={2}><strong>Other Charges</strong></td><td><strong>{numberForInvoice(view.otherCharges)}</strong></td></tr>
                   <tr><td /><td colSpan={2}><strong>Discount</strong></td><td><strong>-{numberForInvoice(view.discount)}</strong></td></tr>
-                  {view.gstEnabled && <tr><td /><td colSpan={2}><strong>CGST@{numberForInvoice(halfRate)}%</strong></td><td><strong>{numberForInvoice(tax / 2)}</strong></td></tr>}
-                  {view.gstEnabled && <tr><td /><td colSpan={2}><strong>SGST@{numberForInvoice(halfRate)}%</strong></td><td><strong>{numberForInvoice(tax / 2)}</strong></td></tr>}
+                  {view.gstEnabled && view.gstType === 'IGST' && <tr><td /><td colSpan={2}><strong>IGST@{numberForInvoice(view.gstRate)}%</strong></td><td><strong>{numberForInvoice(tax)}</strong></td></tr>}
+                  {view.gstEnabled && view.gstType !== 'IGST' && <tr><td /><td colSpan={2}><strong>CGST@{numberForInvoice(halfRate)}%</strong></td><td><strong>{numberForInvoice(tax / 2)}</strong></td></tr>}
+                  {view.gstEnabled && view.gstType !== 'IGST' && <tr><td /><td colSpan={2}><strong>SGST@{numberForInvoice(halfRate)}%</strong></td><td><strong>{numberForInvoice(tax / 2)}</strong></td></tr>}
                   <tr><td /><td colSpan={2} className="vmv-grand"><strong>GRAND TOTAL</strong></td><td className="vmv-grand"><strong>{numberForInvoice(grandTotal)}</strong></td></tr>
                 </tfoot>
               </table>

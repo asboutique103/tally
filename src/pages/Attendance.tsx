@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useMemo, useState, type FormEvent } from 'react';
-import { Ban, Check, CreditCard, Download, Pencil, Plus, TrendingUp, Trash2, UserPlus, Users } from 'lucide-react';
+import { Ban, Calendar as CalendarIcon, Check, CreditCard, Download, Pencil, Plus, TrendingUp, Trash2, UserPlus, Users } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { EmptyState } from '../components/EmptyState';
 import { Modal } from '../components/Modal';
@@ -7,8 +7,8 @@ import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
 import { StatCard } from '../components/StatCard';
 import {
-  attendanceKey, attendanceMixFor, branchAnalytics, calcEmployeeSalary, calcEmployeeSalaryForDates, currency, daysInMonth,
-  dateInputValue, defaultDayAttendance, departmentAnalytics, downloadCsv, monthLabel, number, outstandingAdvanceFor,
+  attendanceKey, attendanceLeaderboard, attendanceMixFor, branchAnalytics, calcEmployeeSalary, calcEmployeeSalaryForDates, currency, daysInMonth,
+  dateInputValue, dayAttendanceSummary, defaultDayAttendance, departmentAnalytics, downloadCsv, monthLabel, number, outstandingAdvanceFor,
   summarizeAttendance, summarizeAttendanceForDates, today, uid, weekDateParts, weekLabel,
 } from '../lib/helpers';
 import { useApp } from '../store/AppContext';
@@ -51,6 +51,7 @@ export function Attendance() {
   const [advanceAmount, setAdvanceAmount] = useState(0);
   const [advanceDate, setAdvanceDate] = useState(today());
   const [advanceReason, setAdvanceReason] = useState('');
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
 
   const total = daysInMonth(year, month);
   const label = monthLabel(year, month);
@@ -70,27 +71,23 @@ export function Attendance() {
 
   const getDecision = useCallback((employeeId: string): DeductionDecision => app.getDeductionDecision(employeeId, periodKey), [app, periodKey]);
 
+  // Cycle order: Blank → Present → Absent → Half day → Blank
+  const nextAttendanceState = (state: string): DayAttendance => {
+    if (state === 'blank') return { present: true, absent: false, half: false, woff: false };
+    if (state === 'present') return { present: false, absent: true, half: false, woff: false };
+    if (state === 'absent') return { present: false, absent: false, half: true, woff: false };
+    return defaultDayAttendance();
+  };
+
   const cycleDay = (emp: Employee, day: number) => {
     const key = attendanceKey(emp.id, year, month, day);
-    const state = dayState(data.attendance[key]);
-    let next: DayAttendance;
-    if (state === 'blank') next = { present: true, absent: false, half: false, woff: false };
-    else if (state === 'present') next = { present: false, absent: true, half: false, woff: false };
-    else if (state === 'absent') next = { present: false, absent: false, half: true, woff: false };
-    else if (state === 'half') next = { present: false, absent: false, half: false, woff: true };
-    else next = defaultDayAttendance();
+    const next = nextAttendanceState(dayState(data.attendance[key]));
     void app.setAttendanceDay(emp.id, year, month, day, next).catch(() => undefined);
   };
 
   const cycleDatePart = (emp: Employee, part: { year: number; month: number; day: number }) => {
     const key = attendanceKey(emp.id, part.year, part.month, part.day);
-    const state = dayState(data.attendance[key]);
-    let next: DayAttendance;
-    if (state === 'blank') next = { present: true, absent: false, half: false, woff: false };
-    else if (state === 'present') next = { present: false, absent: true, half: false, woff: false };
-    else if (state === 'absent') next = { present: false, absent: false, half: true, woff: false };
-    else if (state === 'half') next = { present: false, absent: false, half: false, woff: true };
-    else next = defaultDayAttendance();
+    const next = nextAttendanceState(dayState(data.attendance[key]));
     void app.setAttendanceDay(emp.id, part.year, part.month, part.day, next).catch(() => undefined);
   };
 
@@ -103,13 +100,33 @@ export function Attendance() {
     [filtered, data, year, month, payCycleView, weekParts, getDecision],
   );
 
+  const periodDays = payCycleView === 'Weekly' ? 7 : total;
   const salarySummary = salaryRows.reduce((acc, row) => ({
-    gross: acc.gross + row.employee.grossSalary,
+    gross: acc.gross + row.employee.grossSalary * periodDays,
     deductions: acc.deductions + row.breakdown.totalDeductions,
     net: acc.net + row.breakdown.net,
   }), { gross: 0, deductions: 0, net: 0 });
 
   const outstandingTotal = data.employees.reduce((sum, e) => sum + outstandingAdvanceFor(data, e.id), 0);
+
+  const filteredAdvances = useMemo(
+    () => data.salaryAdvances.filter((advance) => {
+      const emp = data.employees.find((e) => e.id === advance.employeeId);
+      return `${emp?.name ?? ''} ${emp?.code ?? ''}`.toLowerCase().includes(query.toLowerCase());
+    }).sort((a, b) => b.givenDate.localeCompare(a.givenDate)),
+    [data.salaryAdvances, data.employees, query],
+  );
+
+  const advanceByEmployee = useMemo(() => {
+    const map = new Map<string, { employee: Employee | undefined; outstanding: typeof data.salaryAdvances; total: number }>();
+    data.salaryAdvances.filter((a) => !a.cleared).forEach((advance) => {
+      const current = map.get(advance.employeeId) ?? { employee: data.employees.find((e) => e.id === advance.employeeId), outstanding: [], total: 0 };
+      current.outstanding = [...current.outstanding, advance];
+      current.total += advance.amount;
+      map.set(advance.employeeId, current);
+    });
+    return [...map.values()].sort((a, b) => b.total - a.total);
+  }, [data.salaryAdvances, data.employees]);
 
   const openCreate = () => { setDraft({ ...emptyEmployee(), code: `EMP-${String(data.employees.length + 1).padStart(3, '0')}` }); setModalOpen(true); };
   const openEdit = (emp: Employee) => { setDraft(emp); setModalOpen(true); };
@@ -187,14 +204,27 @@ export function Attendance() {
   const monthOptions = [0, -1, -2].map((offset) => { const d = new Date(year, month - 1 + offset, 1); return { year: d.getFullYear(), month: d.getMonth() + 1 }; });
 
   const deptChart = useMemo(() => departmentAnalytics(data, activeEmployees, year, month), [data, activeEmployees, year, month]);
-  const branchChart = useMemo(() => branchAnalytics(data, activeEmployees), [data, activeEmployees]);
+  const branchChart = useMemo(() => branchAnalytics(data, activeEmployees, year, month), [data, activeEmployees, year, month]);
   const mix = useMemo(() => attendanceMixFor(data, activeEmployees, year, month), [data, activeEmployees, year, month]);
+  const mixTotalMarks = mix.present + mix.half + mix.weekOff + mix.absent;
+  const pct = (value: number) => (mixTotalMarks === 0 ? 0 : Math.round((value / mixTotalMarks) * 1000) / 10);
   const mixChart = [
-    { name: 'Present', value: mix.present },
-    { name: 'Half day', value: mix.half },
-    { name: 'Leave', value: mix.weekOff },
-    { name: 'Absent', value: mix.absent },
+    { name: 'Present', value: mix.present, pct: pct(mix.present) },
+    { name: 'Half day', value: mix.half, pct: pct(mix.half) },
+    { name: 'Leave', value: mix.weekOff, pct: pct(mix.weekOff) },
+    { name: 'Absent', value: mix.absent, pct: pct(mix.absent) },
   ];
+  const avgPresentPerEmployee = activeEmployees.length ? mix.present / activeEmployees.length : 0;
+  const avgAbsentPerEmployee = activeEmployees.length ? mix.absent / activeEmployees.length : 0;
+
+  const leaderboard = useMemo(() => attendanceLeaderboard(data, activeEmployees, year, month).slice(0, 6), [data, activeEmployees, year, month]);
+  const leaderboardChart = leaderboard.map((row) => ({ name: row.employee.name, Present: row.summary.presentDays, Absent: row.summary.absentDays }));
+
+  const calendarDays = Array.from({ length: total }, (_, index) => index + 1);
+  const daySummary = useMemo(
+    () => (selectedDay ? dayAttendanceSummary(data, activeEmployees, year, month, selectedDay) : null),
+    [data, activeEmployees, year, month, selectedDay],
+  );
 
   return (
     <div className="page-stack">
@@ -226,7 +256,7 @@ export function Attendance() {
 
       <section className="stats-grid">
         <StatCard label="Active staff" value={String(activeEmployees.length)} helper={`${periodLabel} · ${payCycleView}`} icon={Users} />
-        <StatCard label="Gross payroll" value={currency(salarySummary.gross)} helper="Sum of monthly gross salary" icon={CreditCard} tone="default" />
+        <StatCard label="Gross payroll" value={currency(salarySummary.gross)} helper={`Per-day rate × ${payCycleView === 'Weekly' ? 'week' : total} days`} icon={CreditCard} tone="default" />
         <StatCard label="Net payable" value={currency(salarySummary.net)} helper="After deductions" icon={Check} tone="success" />
         <StatCard label="Outstanding advances" value={currency(outstandingTotal)} helper="Not yet cleared" icon={Ban} tone={outstandingTotal > 0 ? 'warning' : 'default'} />
       </section>
@@ -248,7 +278,7 @@ export function Attendance() {
 
       {tab === 'Attendance' && (
         <section className="panel table-panel">
-          <div className="panel-header"><div><h2>Daily attendance — {periodLabel}</h2><span className="eyebrow">Tap a day to cycle Present → Absent → Half day → Leave → Blank</span></div></div>
+          <div className="panel-header"><div><h2>Daily attendance — {periodLabel}</h2><span className="eyebrow">Tap a day to cycle Present → Absent → Half day → Blank</span></div></div>
           {filtered.length === 0 ? <EmptyState title="No employees found" description={payCycleView === 'Weekly' ? 'Add Mesthri, Electrician, Tile Worker, Painter or weekly Labor staff to record weekly attendance.' : 'Add staff to start recording attendance.'} action={<button className="button primary" onClick={openCreate}><UserPlus size={17} /> Add employee</button>} /> : payCycleView === 'Weekly' ? (
             <div className="table-scroll">
               <table className="data-table attendance-table">
@@ -325,19 +355,33 @@ export function Attendance() {
           {salaryRows.length === 0 ? <EmptyState title="No employees found" description="Add staff to compute payroll." /> : (
             <div className="table-scroll">
               <table className="data-table">
-                <thead><tr><th>Employee</th><th>{payCycleView === 'Weekly' ? 'Weekly wage' : 'Gross (monthly)'}</th><th>Working days</th><th>Payable days</th><th>Earned</th><th>Advance</th><th>Other</th><th>Net payable</th><th>Deductions</th></tr></thead>
+                <thead><tr><th>Employee</th><th>Gross (per day)</th><th>Working days</th><th>Payable days</th><th>Earned</th><th>Advance</th><th>Other</th><th>Net payable</th><th>Deductions</th></tr></thead>
                 <tbody>
                   {salaryRows.map(({ employee: e, breakdown: b, attendance }) => {
                     const decision = getDecision(e.id);
                     return (
                       <tr key={e.id}>
                         <td><strong>{e.name}</strong><span>{e.code} · {e.branch}</span></td>
-                        <td>{currency(e.grossSalary)}</td>
+                        <td>{currency(e.grossSalary)}<span>per day</span></td>
                         <td>{number(attendance.workingDays, 1)}</td>
                         <td>{number(attendance.payableDays, 1)}</td>
                         <td><strong>{currency(b.earned)}</strong></td>
                         <td>
                           <label className="deduction-toggle"><input type="checkbox" checked={decision.deductAdvance} onChange={(ev) => void app.setDeductionDecision(e.id, periodKey, { ...decision, deductAdvance: ev.target.checked }).catch(() => undefined)} /> {currency(b.advanceDeduction)}</label>
+                          {outstandingAdvanceFor(data, e.id) > 0 && (
+                            <button
+                              type="button"
+                              className="link-button"
+                              style={{ display: 'block', marginTop: 4, fontSize: 11, fontWeight: 700 }}
+                              onClick={() => {
+                                if (!confirm(`Clear all outstanding advances for ${e.name} (${currency(outstandingAdvanceFor(data, e.id))})?`)) return;
+                                const outstanding = data.salaryAdvances.filter((a) => a.employeeId === e.id && !a.cleared);
+                                outstanding.forEach((advance) => void app.clearSalaryAdvance(advance.id).catch(() => undefined));
+                              }}
+                            >
+                              Clear advance
+                            </button>
+                          )}
                         </td>
                         <td>
                           <label className="deduction-toggle"><input type="checkbox" checked={decision.deductOther} onChange={(ev) => void app.setDeductionDecision(e.id, periodKey, { ...decision, deductOther: ev.target.checked }).catch(() => undefined)} /> {currency(b.otherDeduction)}</label>
@@ -358,40 +402,73 @@ export function Attendance() {
       )}
 
       {tab === 'Advances' && (
-        <section className="panel table-panel">
-          <div className="panel-header">
-            <div><h2>Salary advances</h2><span className="eyebrow">Track advances given to staff and mark them cleared once settled</span></div>
-          </div>
-          {data.employees.length === 0 ? <EmptyState title="No employees found" description="Add staff first to record an advance." /> : (
-            <div className="table-scroll">
-              <table className="data-table">
-                <thead><tr><th>Employee</th><th>Amount</th><th>Advance date</th><th>Reason</th><th>Status</th><th /></tr></thead>
-                <tbody>
-                  {data.salaryAdvances.length === 0 && <tr><td colSpan={6}><EmptyState title="No advances recorded" description="Use the button below to record a salary advance." /></td></tr>}
-                  {data.salaryAdvances.map((advance) => {
-                    const emp = data.employees.find((e) => e.id === advance.employeeId);
-                    return (
-                      <tr key={advance.id}>
-                        <td><strong>{emp?.name ?? 'Unknown'}</strong><span>{emp?.code}</span></td>
-                        <td>{currency(advance.amount)}</td>
-                        <td>{advance.givenDate}</td>
-                        <td>{advance.note || '—'}</td>
-                        <td><span className={`status-pill ${advance.cleared ? 'success' : 'warning'}`}>{advance.cleared ? 'Cleared' : 'Outstanding'}</span></td>
-                        <td>{!advance.cleared && <button className="button secondary" onClick={() => void app.clearSalaryAdvance(advance.id).catch(() => undefined)}>Mark cleared</button>}</td>
+        <>
+          {advanceByEmployee.length > 0 && (
+            <section className="panel table-panel">
+              <div className="panel-header"><div><h2>Outstanding by employee</h2><span className="eyebrow">Clear every advance for a person in one tap — it stays in sync with the Salary tab</span></div></div>
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead><tr><th>Employee</th><th>Outstanding advances</th><th>Total outstanding</th><th /></tr></thead>
+                  <tbody>
+                    {advanceByEmployee.map(({ employee, outstanding, total: outstandingTotalForEmp }) => (
+                      <tr key={employee?.id ?? 'unknown'}>
+                        <td><strong>{employee?.name ?? 'Unknown'}</strong><span>{employee?.code}</span></td>
+                        <td>{outstanding.length}</td>
+                        <td><strong className="negative-text">{currency(outstandingTotalForEmp)}</strong></td>
+                        <td>
+                          <button
+                            className="button secondary"
+                            onClick={() => {
+                              if (!confirm(`Clear all outstanding advances for ${employee?.name} (${currency(outstandingTotalForEmp)})?`)) return;
+                              outstanding.forEach((advance) => void app.clearSalaryAdvance(advance.id).catch(() => undefined));
+                            }}
+                          >
+                            Clear all
+                          </button>
+                        </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
           )}
-          <div className="form-actions" style={{ padding: 15 }}>
-            <select className="month-select" onChange={(e) => { const emp = data.employees.find((x) => x.id === e.target.value); if (emp) setAdvanceModal(emp); e.target.value = ''; }} defaultValue="">
-              <option value="" disabled>Record advance for...</option>
-              {activeEmployees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-            </select>
-          </div>
-        </section>
+
+          <section className="panel table-panel">
+            <div className="panel-header">
+              <div><h2>Salary advances</h2><span className="eyebrow">Track advances given to staff and mark them cleared once settled</span></div>
+            </div>
+            {data.employees.length === 0 ? <EmptyState title="No employees found" description="Add staff first to record an advance." /> : (
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead><tr><th>Employee</th><th>Amount</th><th>Advance date</th><th>Reason</th><th>Status</th><th /></tr></thead>
+                  <tbody>
+                    {filteredAdvances.length === 0 && <tr><td colSpan={6}><EmptyState title="No advances recorded" description="Use the button below to record a salary advance." /></td></tr>}
+                    {filteredAdvances.map((advance) => {
+                      const emp = data.employees.find((e) => e.id === advance.employeeId);
+                      return (
+                        <tr key={advance.id}>
+                          <td><strong>{emp?.name ?? 'Unknown'}</strong><span>{emp?.code}</span></td>
+                          <td>{currency(advance.amount)}</td>
+                          <td>{advance.givenDate}</td>
+                          <td>{advance.note || '—'}</td>
+                          <td><span className={`status-pill ${advance.cleared ? 'success' : 'warning'}`}>{advance.cleared ? 'Cleared' : 'Outstanding'}</span></td>
+                          <td>{!advance.cleared && <button className="button secondary" onClick={() => void app.clearSalaryAdvance(advance.id).catch(() => undefined)}>Mark cleared</button>}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="form-actions" style={{ padding: 15 }}>
+              <select className="month-select" onChange={(e) => { const emp = data.employees.find((x) => x.id === e.target.value); if (emp) setAdvanceModal(emp); e.target.value = ''; }} defaultValue="">
+                <option value="" disabled>Record advance for...</option>
+                {activeEmployees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </select>
+            </div>
+          </section>
+        </>
       )}
 
       {tab === 'Employees' && (
@@ -408,7 +485,7 @@ export function Attendance() {
                       <td><span className="status-pill neutral">{e.branch}</span></td>
                       <td><span className={`soft-badge ${e.payCycle === 'Weekly' ? '' : 'warning-badge'}`}>{e.payCycle}</span></td>
                       <td>{e.department}</td>
-                      <td><strong>{currency(e.grossSalary)}</strong><span>{e.payCycle === 'Weekly' ? 'per week' : 'per month'}</span></td>
+                      <td><strong>{currency(e.grossSalary)}</strong><span>per day</span></td>
                       <td>{e.bankName ? <>{e.bankName}<span>{e.accountNumber} · {e.ifscCode}</span></> : '—'}</td>
                       <td>{currency(outstandingAdvanceFor(data, e.id))}</td>
                       <td>
@@ -428,23 +505,33 @@ export function Attendance() {
 
       {tab === 'Analytics' && (
         <>
+          <section className="stats-grid">
+            <StatCard label="Avg present days / employee" value={number(avgPresentPerEmployee, 1)} helper={`${label} · out of ${total} days`} icon={Check} tone="success" />
+            <StatCard label="Avg absent days / employee" value={number(avgAbsentPerEmployee, 1)} helper={`${label} · across ${activeEmployees.length} staff`} icon={Ban} tone={avgAbsentPerEmployee > 0 ? 'warning' : 'default'} />
+            <StatCard label="Marked attendance" value={`${mixTotalMarks}`} helper="Total day-marks logged this month" icon={CalendarIcon} />
+            <StatCard label="Active staff" value={String(activeEmployees.length)} helper="Currently active" icon={Users} />
+          </section>
+
           <section className="dashboard-grid">
             <article className="panel chart-panel">
               <div className="panel-header">
                 <div><span className="eyebrow">Attendance mix</span><h2>{label} attendance breakdown</h2></div>
-                <span className="soft-badge">{activeEmployees.length} active staff</span>
+                <span className="soft-badge">{activeEmployees.length} active staff · {mixTotalMarks} day-marks</span>
               </div>
               <div className="chart-wrap">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={mixChart} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={2}>
+                    <Pie data={mixChart} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={2} label={(entry: { name?: string; pct?: number }) => `${entry.name} ${entry.pct}%`}>
                       {mixChart.map((entry, index) => <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
                     </Pie>
-                    <Tooltip />
+                    <Tooltip formatter={(value, _name, item) => [`${value} days (${item?.payload?.pct ?? 0}%)`, item?.payload?.name]} />
                     <Legend />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
+              <p style={{ padding: '0 20px 16px', margin: 0, fontSize: 11, color: 'var(--muted)' }}>
+                Values are total employee-days for {label} — e.g. 2 staff present 20 days each shows as 40 present days. Use the "Avg present days" card above for a per-employee figure.
+              </p>
             </article>
 
             <article className="panel chart-panel">
@@ -461,6 +548,71 @@ export function Attendance() {
                     <Legend />
                   </PieChart>
                 </ResponsiveContainer>
+              </div>
+            </article>
+          </section>
+
+          <section className="dashboard-grid">
+            <article className="panel chart-panel" style={{ height: 340 }}>
+              <div className="panel-header">
+                <div><span className="eyebrow">Who to follow up with</span><h2>Present vs absent — top 6 by absence</h2></div>
+              </div>
+              <div className="chart-wrap">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={leaderboardChart} margin={{ top: 10, right: 8, left: 8, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="Present" radius={[8, 8, 0, 0]} fill={CHART_COLORS[1]} />
+                    <Bar dataKey="Absent" radius={[8, 8, 0, 0]} fill={CHART_COLORS[3]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </article>
+
+            <article className="panel">
+              <div className="panel-header">
+                <div><span className="eyebrow">{label}</span><h2>Attendance calendar</h2></div>
+                <CalendarIcon size={18} />
+              </div>
+              <div style={{ padding: '4px 20px 20px' }}>
+                <div className="attendance-calendar-grid">
+                  {calendarDays.map((day) => {
+                    const summary = dayAttendanceSummary(data, activeEmployees, year, month, day);
+                    const weekday = new Date(year, month - 1, day).getDay();
+                    return (
+                      <button
+                        type="button"
+                        key={day}
+                        className={`calendar-cell ${selectedDay === day ? 'selected' : ''} ${weekday === 0 ? 'sun' : ''}`}
+                        onClick={() => setSelectedDay(day === selectedDay ? null : day)}
+                        title={`${summary.present} present · ${summary.absent} absent · ${summary.half} half day`}
+                      >
+                        <span className="calendar-day-num">{day}</span>
+                        <span className="calendar-day-dots">
+                          {summary.present > 0 && <i className="dot dot-present" />}
+                          {summary.absent > 0 && <i className="dot dot-absent" />}
+                          {summary.half > 0 && <i className="dot dot-half" />}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {daySummary ? (
+                  <div className="calendar-summary">
+                    <strong>{monthLabel(year, month).split(' ')[0]} {selectedDay}, {year}</strong>
+                    <div className="calendar-summary-grid">
+                      <div><span className="positive-text">{daySummary.present}</span><small>Present</small></div>
+                      <div><span className="negative-text">{daySummary.absent}</span><small>Absent</small></div>
+                      <div><span>{daySummary.half}</span><small>Half day</small></div>
+                      <div><span>{daySummary.blank}</span><small>Not marked</small></div>
+                    </div>
+                  </div>
+                ) : (
+                  <p style={{ marginTop: 14, fontSize: 11, color: 'var(--muted)' }}>Click a day to see how many staff were present, absent or on half day.</p>
+                )}
               </div>
             </article>
           </section>
@@ -505,6 +657,35 @@ export function Attendance() {
               </table>
             </div>
           </section>
+
+          <section className="panel table-panel">
+            <div className="panel-header"><div><h2>All employee details — {label}</h2><span className="eyebrow">Full staff roster with this period's attendance and pay</span></div></div>
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead><tr><th>Employee</th><th>Branch</th><th>Department</th><th>Gross/day</th><th>Present</th><th>Absent</th><th>Half day</th><th>Net payable</th><th>Outstanding advance</th></tr></thead>
+                <tbody>
+                  {activeEmployees.map((emp) => {
+                    const monthPeriodKey = `month-${year}-${String(month).padStart(2, '0')}`;
+                    const summary = summarizeAttendance(data, emp.id, year, month);
+                    const breakdown = calcEmployeeSalary(data, emp, year, month, app.getDeductionDecision(emp.id, monthPeriodKey));
+                    return (
+                      <tr key={emp.id}>
+                        <td><strong>{emp.name}</strong><span>{emp.code}</span></td>
+                        <td><span className="status-pill neutral">{emp.branch}</span></td>
+                        <td>{emp.department || '—'}</td>
+                        <td>{currency(emp.grossSalary)}</td>
+                        <td className="positive-text">{summary.presentDays}</td>
+                        <td className="negative-text">{summary.absentDays}</td>
+                        <td>{summary.halfDays}</td>
+                        <td><strong>{currency(breakdown.net)}</strong></td>
+                        <td>{currency(outstandingAdvanceFor(data, emp.id))}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
         </>
       )}
 
@@ -516,7 +697,7 @@ export function Attendance() {
             <label><span>Branch</span><select value={draft.branch} onChange={(e) => setDraft({ ...draft, branch: e.target.value as StaffBranch })}>{branches.map((b) => <option key={b}>{b}</option>)}</select></label>
             <label><span>Department</span><input value={draft.department} onChange={(e) => setDraft({ ...draft, department: e.target.value })} placeholder="Site engineering, Stores..." /></label>
             <label><span>Pay cycle</span><select value={draft.payCycle} onChange={(e) => setDraft({ ...draft, payCycle: e.target.value as PayCycle })}><option>Weekly</option><option>Monthly</option></select></label>
-            <label><span>{draft.payCycle === 'Weekly' ? 'Weekly wage *' : 'Gross salary (monthly) *'}</span><input type="number" min="0" required value={draft.grossSalary} onChange={(e) => setDraft({ ...draft, grossSalary: Number(e.target.value) })} /></label>
+            <label><span>Gross salary (per day) *</span><input type="number" min="0" step="0.01" required value={draft.grossSalary} onChange={(e) => setDraft({ ...draft, grossSalary: Number(e.target.value) })} /></label>
             <label><span>Other deduction</span><input type="number" min="0" value={draft.otherDeduction} onChange={(e) => setDraft({ ...draft, otherDeduction: Number(e.target.value) })} /></label>
             <label><span>Bank name</span><input value={draft.bankName ?? ''} onChange={(e) => setDraft({ ...draft, bankName: e.target.value })} /></label>
             <label><span>Account number</span><input value={draft.accountNumber ?? ''} onChange={(e) => setDraft({ ...draft, accountNumber: e.target.value })} /></label>

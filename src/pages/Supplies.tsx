@@ -11,7 +11,7 @@ import {
 } from '../lib/helpers';
 import { cleanText, hasDuplicate, hasValidItems, isFilled } from '../lib/validation';
 import { useApp } from '../store/AppContext';
-import type { Supply } from '../types';
+import type { GstType, Supply } from '../types';
 
 const formatDate = (value: string) => value ? new Date(value).toLocaleDateString('en-IN') : '—';
 const numberForInvoice = (value: number) => (value || 0).toLocaleString('en-IN', { minimumFractionDigits: value % 1 ? 2 : 0, maximumFractionDigits: 2 });
@@ -29,6 +29,7 @@ export function Supplies() {
     notes: '',
     gstEnabled: false,
     gstRate: data.settings.defaultTaxRate || 18,
+    gstType: 'CGST_SGST',
     createdAt: new Date().toISOString(),
   });
 
@@ -56,6 +57,7 @@ export function Supplies() {
       issueNo: cleanText(draft.issueNo).toUpperCase(),
       notes: cleanText(draft.notes),
       gstRate: draft.gstEnabled ? (draft.gstRate || 0) : 0,
+      gstType: draft.gstEnabled ? (draft.gstType || 'CGST_SGST') : 'CGST_SGST',
     };
 
     if (!isFilled(next.issueNo) || !isFilled(next.date) || !isFilled(next.siteId)) {
@@ -128,7 +130,7 @@ export function Supplies() {
                   <td>{new Date(supply.date).toLocaleDateString('en-IN')}</td>
                   <td><strong>{data.sites.find((site) => site.id === supply.siteId)?.name || '-'}</strong><span>{data.sites.find((site) => site.id === supply.siteId)?.location}</span></td>
                   <td>{supply.items.length}</td>
-                  <td><span className={`soft-badge ${supply.gstEnabled ? '' : 'warning-badge'}`}>{supply.gstEnabled ? `${supply.gstRate}% GST` : 'No GST'}</span></td>
+                  <td><span className={`soft-badge ${supply.gstEnabled ? '' : 'warning-badge'}`}>{supply.gstEnabled ? `${supply.gstRate}% ${supply.gstType === 'IGST' ? 'IGST' : 'GST'}` : 'No GST'}</span></td>
                   <td><strong>{currency(supplyTotal(supply))}</strong></td>
                   <td>
                     <div className="row-actions">
@@ -162,6 +164,12 @@ export function Supplies() {
           <div className="form-grid three">
             <label className="toggle-label span-2"><input type="checkbox" checked={draft.gstEnabled} onChange={(event) => setDraft({ ...draft, gstEnabled: event.target.checked })} /><span><strong>Include GST on this issue</strong><small>Turn on if this site issue should be billed with GST.</small></span></label>
             {draft.gstEnabled && <label><span>GST % *</span><input required type="number" min="0" step="0.01" value={draft.gstRate} onChange={(event) => setDraft({ ...draft, gstRate: Number(event.target.value) })} /></label>}
+            {draft.gstEnabled && (
+              <label className="toggle-label">
+                <input type="checkbox" checked={draft.gstType === 'IGST'} onChange={(event) => setDraft({ ...draft, gstType: event.target.checked ? 'IGST' : 'CGST_SGST' })} />
+                <span><strong>Inter-state (IGST)</strong><small>When on, GST prints as a single IGST line instead of split CGST/SGST.</small></span>
+              </label>
+            )}
           </div>
           <div className="document-total">
             <span>Taxable amount {currency(taxableAmount(draft.items))}</span>
@@ -201,7 +209,7 @@ export function Supplies() {
                 <div className="vmv-party-right">
                   <p><strong>ISSUE NO</strong><span>: {view.issueNo}</span></p>
                   <p><strong>ISSUE DATE</strong><span>: {formatDate(view.date)}</span></p>
-                  <p><strong>GST</strong><span>: {view.gstEnabled ? `${view.gstRate}%` : 'Not applicable'}</span></p>
+                  <p><strong>GST</strong><span>: {view.gstEnabled ? `${view.gstRate}% ${view.gstType === 'IGST' ? '(IGST)' : '(CGST+SGST)'}` : 'Not applicable'}</span></p>
                 </div>
               </div>
               <table className="vmv-items">
@@ -223,9 +231,10 @@ export function Supplies() {
                   {Array.from({ length: Math.max(0, 6 - view.items.length) }, (_, index) => <tr key={`blank-${index}`}><td>&nbsp;</td><td /><td /><td /><td /><td /></tr>)}
                 </tbody>
                 <tfoot>
-                  <tr><td colSpan={2} rowSpan={view.gstEnabled ? 4 : 2} className="vmv-words"><strong>Amount in word Rupees:</strong> {amountInIndianWords(grandTotal)}</td><td /><td colSpan={2}><strong>Taxable Amount</strong></td><td><strong>{numberForInvoice(taxable)}</strong></td></tr>
-                  {view.gstEnabled && <tr><td /><td colSpan={2}><strong>CGST@{numberForInvoice(view.gstRate / 2)}%</strong></td><td><strong>{numberForInvoice(gst / 2)}</strong></td></tr>}
-                  {view.gstEnabled && <tr><td /><td colSpan={2}><strong>SGST@{numberForInvoice(view.gstRate / 2)}%</strong></td><td><strong>{numberForInvoice(gst / 2)}</strong></td></tr>}
+                  <tr><td colSpan={2} rowSpan={view.gstEnabled ? (view.gstType === 'IGST' ? 3 : 4) : 2} className="vmv-words"><strong>Amount in word Rupees:</strong> {amountInIndianWords(grandTotal)}</td><td /><td colSpan={2}><strong>Taxable Amount</strong></td><td><strong>{numberForInvoice(taxable)}</strong></td></tr>
+                  {view.gstEnabled && view.gstType === 'IGST' && <tr><td /><td colSpan={2}><strong>IGST@{numberForInvoice(view.gstRate)}%</strong></td><td><strong>{numberForInvoice(gst)}</strong></td></tr>}
+                  {view.gstEnabled && view.gstType !== 'IGST' && <tr><td /><td colSpan={2}><strong>CGST@{numberForInvoice(view.gstRate / 2)}%</strong></td><td><strong>{numberForInvoice(gst / 2)}</strong></td></tr>}
+                  {view.gstEnabled && view.gstType !== 'IGST' && <tr><td /><td colSpan={2}><strong>SGST@{numberForInvoice(view.gstRate / 2)}%</strong></td><td><strong>{numberForInvoice(gst / 2)}</strong></td></tr>}
                   <tr><td /><td colSpan={2} className="vmv-grand"><strong>GRAND TOTAL</strong></td><td className="vmv-grand"><strong>{numberForInvoice(grandTotal)}</strong></td></tr>
                 </tfoot>
               </table>
