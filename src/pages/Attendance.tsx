@@ -367,7 +367,13 @@ export function Attendance() {
                         <td>{number(attendance.payableDays, 1)}</td>
                         <td><strong>{currency(b.earned)}</strong></td>
                         <td>
-                          <label className="deduction-toggle"><input type="checkbox" checked={decision.deductAdvance} onChange={(ev) => void app.setDeductionDecision(e.id, periodKey, { ...decision, deductAdvance: ev.target.checked }).catch(() => undefined)} /> {currency(b.advanceDeduction)}</label>
+                          <label className="deduction-toggle" title="Tick to deduct this outstanding advance from this period's payout">
+                            <input type="checkbox" checked={decision.deductAdvance} onChange={(ev) => void app.setDeductionDecision(e.id, periodKey, { ...decision, deductAdvance: ev.target.checked }).catch(() => undefined)} />
+                            {currency(outstandingAdvanceFor(data, e.id))}
+                          </label>
+                          {decision.deductAdvance && b.advanceDeduction !== outstandingAdvanceFor(data, e.id) && (
+                            <span style={{ display: 'block', fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Deducting {currency(b.advanceDeduction)} this period</span>
+                          )}
                           {outstandingAdvanceFor(data, e.id) > 0 && (
                             <button
                               type="button"
