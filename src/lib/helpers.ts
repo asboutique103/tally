@@ -295,9 +295,8 @@ export interface EmployeeSalaryBreakdown {
 }
 
 export const calcEmployeeSalary = (data: AppData, employee: Employee, year: number, month: number, decision: DeductionDecision): EmployeeSalaryBreakdown => {
-  const total = daysInMonth(year, month);
   const attendance = summarizeAttendance(data, employee.id, year, month);
-  const perDay = employee.grossSalary / total;
+  const perDay = employee.grossSalary;
   const earned = Math.round(perDay * attendance.payableDays);
   const outstandingAdvance = data.salaryAdvances.filter((advance) => advance.employeeId === employee.id && !advance.cleared).reduce((sum, advance) => sum + advance.amount, 0);
   const advanceDeduction = decision.deductAdvance ? Math.min(outstandingAdvance, earned) : 0;
@@ -321,6 +320,7 @@ export interface DepartmentAnalytics {
 
 export const departmentAnalytics = (data: AppData, employees: Employee[], year: number, month: number): DepartmentAnalytics[] => {
   const periodKey = `month-${year}-${String(month).padStart(2, '0')}`;
+  const total = daysInMonth(year, month);
   const map = new Map<string, DepartmentAnalytics>();
   employees.forEach((employee) => {
     const key = employee.department || 'Unassigned';
@@ -328,7 +328,7 @@ export const departmentAnalytics = (data: AppData, employees: Employee[], year: 
     const attendance = summarizeAttendance(data, employee.id, year, month);
     const breakdown = calcEmployeeSalary(data, employee, year, month, data.deductionDecisions[`${employee.id}_${periodKey}`] ?? defaultDeductionDecision());
     current.employees += 1;
-    current.gross += employee.grossSalary;
+    current.gross += employee.grossSalary * total;
     current.net += breakdown.net;
     current.presentDays += attendance.presentDays;
     current.absentDays += attendance.absentDays;
@@ -337,12 +337,13 @@ export const departmentAnalytics = (data: AppData, employees: Employee[], year: 
   return [...map.values()];
 };
 
-export const branchAnalytics = (data: AppData, employees: Employee[]) => {
+export const branchAnalytics = (data: AppData, employees: Employee[], year: number, month: number) => {
+  const total = daysInMonth(year, month);
   const map = new Map<string, { branch: string; employees: number; gross: number }>();
   employees.forEach((employee) => {
     const current = map.get(employee.branch) ?? { branch: employee.branch, employees: 0, gross: 0 };
     current.employees += 1;
-    current.gross += employee.grossSalary;
+    current.gross += employee.grossSalary * total;
     map.set(employee.branch, current);
   });
   return [...map.values()];
@@ -352,6 +353,27 @@ export const attendanceMixFor = (data: AppData, employees: Employee[], year: num
   const s = summarizeAttendance(data, employee.id, year, month);
   return { present: acc.present + s.presentDays, half: acc.half + s.halfDays, weekOff: acc.weekOff + s.weekOffs, absent: acc.absent + s.absentDays };
 }, { present: 0, half: 0, weekOff: 0, absent: 0 });
+
+export interface DayAttendanceSummary { present: number; absent: number; half: number; blank: number; total: number; }
+
+/** Present/absent/half/blank headcount for a single calendar day across the given employees. */
+export const dayAttendanceSummary = (data: AppData, employees: Employee[], year: number, month: number, day: number): DayAttendanceSummary => {
+  let present = 0, absent = 0, half = 0;
+  employees.forEach((employee) => {
+    const entry = data.attendance[attendanceKey(employee.id, year, month, day)];
+    if (!entry) return;
+    if (entry.half) half++;
+    else if (entry.present) present++;
+    else if (entry.absent) absent++;
+  });
+  const total = employees.length;
+  return { present, absent, half, blank: total - present - absent - half, total };
+};
+
+/** Present-days per employee across a month, for a "who was absent the most" style view. */
+export const attendanceLeaderboard = (data: AppData, employees: Employee[], year: number, month: number) =>
+  employees.map((employee) => ({ employee, summary: summarizeAttendance(data, employee.id, year, month) }))
+    .sort((a, b) => b.summary.absentDays - a.summary.absentDays);
 
 // ── Weekly payroll (Mesthri, Electrician, Tile Worker, Painter, and Labor opting for weekly pay) ──
 export interface DateParts { year: number; month: number; day: number; }
@@ -401,7 +423,7 @@ export const summarizeAttendanceForDates = (data: AppData, employeeId: string, d
 
 export const calcEmployeeSalaryForDates = (data: AppData, employee: Employee, dates: DateParts[], decision: DeductionDecision): EmployeeSalaryBreakdown => {
   const attendance = summarizeAttendanceForDates(data, employee.id, dates);
-  const perDay = employee.grossSalary / dates.length;
+  const perDay = employee.grossSalary;
   const earned = Math.round(perDay * attendance.payableDays);
   const outstandingAdvance = data.salaryAdvances.filter((advance) => advance.employeeId === employee.id && !advance.cleared).reduce((sum, advance) => sum + advance.amount, 0);
   const advanceDeduction = decision.deductAdvance ? Math.min(outstandingAdvance, earned) : 0;
