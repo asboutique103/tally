@@ -75,6 +75,8 @@ export interface Receipt {
   createdAt: string;
 }
 
+export type GstType = 'CGST_SGST' | 'IGST';
+
 export interface Supply {
   id: Id;
   issueNo: string;
@@ -84,6 +86,7 @@ export interface Supply {
   notes: string;
   gstEnabled: boolean;
   gstRate: number;
+  gstType?: GstType;
   createdAt: string;
 }
 
@@ -108,6 +111,7 @@ export interface Bill {
   otherCharges: number;
   gstEnabled: boolean;
   gstRate: number;
+  gstType?: GstType;
   notes: string;
   status: PaymentStatus;
   inventoryPosting: InventoryPosting;
