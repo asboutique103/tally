@@ -594,6 +594,12 @@ input:focus, select:focus, textarea:focus { border-color: #a6a7f8; box-shadow: 0
 .calendar-summary-grid span { display: block; font-size: 15px; font-weight: 800; color: var(--ink); }
 .calendar-summary-grid small { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; }
 
+.steel-calc { display: flex; flex-direction: column; gap: 4px; min-width: 220px; }
+.steel-calc-inputs { display: flex; gap: 6px; }
+.steel-calc-inputs label { display: flex; flex-direction: column; gap: 2px; font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; }
+.steel-calc-inputs input { width: 62px; padding: 6px 7px; font-size: 12px; }
+.steel-calc-total { font-size: 12px; color: var(--ink); }
+
 .day-absent { background: #ffe3e7; color: var(--red); border-color: #ffc4ce; }
 .day-leave { background: #fff4ce; color: #9a6700; border-color: #ffe08a; }
 .day-half { min-width: 32px; }

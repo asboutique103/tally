@@ -1,5 +1,5 @@
 export type Id = string;
-export type Unit = 'KG' | 'Ltr' | 'Pcs' | 'Nos' | 'Bag' | 'Box' | 'Cft' | 'Sqft' | 'Mtr' | 'Load';
+export type Unit = 'KG' | 'Ltr' | 'Pcs' | 'Nos' | 'Bag' | 'Box' | 'Bundle' | 'Cft' | 'Sqft' | 'Mtr' | 'Load';
 export type PaymentStatus = 'Unpaid' | 'Partially Paid' | 'Paid' | 'Overdue';
 export type BillType = 'Purchase' | 'Client';
 export type Role = 'Owner' | 'Admin' | 'Accountant' | 'Storekeeper' | 'Site Engineer' | 'Viewer';
@@ -58,6 +58,10 @@ export interface TransactionItem {
   rate: number;
   taxRate: number;
   note?: string;
+  /** Steel-specific helper fields (only used when the material's category is "Steel"). */
+  steelSizeMm?: number;
+  steelBundles?: number;
+  steelKgPerBundle?: number;
 }
 
 export interface Receipt {
