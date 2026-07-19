@@ -9,7 +9,7 @@ import { cleanText, hasDuplicate, isFilled } from '../lib/validation';
 import { useApp } from '../store/AppContext';
 import type { InventoryRow, Material, Unit } from '../types';
 
-const units: Unit[] = ['KG', 'Ltr', 'Pcs', 'Nos', 'Bag', 'Box', 'Cft', 'Sqft', 'Mtr', 'Load'];
+const units: Unit[] = ['KG', 'Ltr', 'Pcs', 'Nos', 'Bag', 'Box', 'Bundle', 'Cft', 'Sqft', 'Mtr', 'Load'];
 
 const emptyMaterial = (): Material => ({
   id: uid('mat'),
@@ -173,6 +173,11 @@ export function Materials() {
             <label><span>Unit *</span><select required value={draft.unit} onChange={(event) => setDraft({ ...draft, unit: event.target.value as Unit })}>{units.map((unit) => <option key={unit}>{unit}</option>)}</select></label>
             <label><span>Opening stock *</span><input required type="number" min="0" step="0.01" value={draft.openingStock} onChange={(event) => setDraft({ ...draft, openingStock: Number(event.target.value) })} /></label>
           </div>
+          {draft.category.trim().toLowerCase() === 'steel' && (
+            <div className="alert" style={{ background: '#fff8e6', border: '1px solid #f2d78a', color: '#7a5b00' }}>
+              Steel materials should use <strong>KG</strong> as the unit — Material Received will let you enter mm size, bundle count and kg/bundle, and auto-calculate the total weight in kg.
+            </div>
+          )}
           <div className="form-actions">
             <button type="button" className="button secondary" onClick={() => setModalOpen(false)}>Cancel</button>
             <button className="button primary">Save material</button>

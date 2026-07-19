@@ -151,7 +151,7 @@ export function Receipts() {
             <label><span>Destination *</span><select required value={draft.destination} onChange={(event) => setDraft({ ...draft, destination: event.target.value as Receipt['destination'], siteId: event.target.value === 'Central Store' ? undefined : draft.siteId })}><option>Central Store</option><option>Direct to Site</option></select></label>
             {draft.destination === 'Direct to Site' && <label className="span-2"><span>Site *</span><select required value={draft.siteId ?? ''} onChange={(event) => setDraft({ ...draft, siteId: event.target.value })}><option value="">Select site</option>{data.sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>}
           </div>
-          <TransactionItemsEditor materials={data.materials} items={draft.items} onChange={(items) => setDraft({ ...draft, items })} showTax={false} />
+          <TransactionItemsEditor materials={data.materials} items={draft.items} onChange={(items) => setDraft({ ...draft, items })} showTax={false} steelCalc />
           <div className="document-total"><strong>Total {currency(receiptTotal(draft))}</strong></div>
           <label><span>Notes</span><textarea rows={3} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label>
           <div className="form-actions">
@@ -174,7 +174,14 @@ export function Receipts() {
               <thead><tr><th>Material</th><th>Qty</th><th>Rate</th><th>Total</th></tr></thead>
               <tbody>{view.items.map((item) => (
                 <tr key={item.id}>
-                  <td>{data.materials.find((material) => material.id === item.materialId)?.name}</td>
+                  <td>
+                    {data.materials.find((material) => material.id === item.materialId)?.name}
+                    {item.steelBundles && item.steelKgPerBundle ? (
+                      <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)' }}>
+                        {item.steelSizeMm ? `${item.steelSizeMm}mm · ` : ''}{item.steelBundles} bundles × {item.steelKgPerBundle}kg
+                      </span>
+                    ) : null}
+                  </td>
                   <td>{item.quantity} {data.materials.find((material) => material.id === item.materialId)?.unit}</td>
                   <td>{currency(item.rate)}</td>
                   <td>{currency(item.quantity * item.rate)}</td>
