@@ -225,6 +225,8 @@ export interface SalaryAdvance {
 export interface DeductionDecision {
   deductAdvance: boolean;
   deductOther: boolean;
+  /** Amount actually recorded as recovered from this employee's advance for this specific period — this is what really reduces the outstanding balance, not just the `deductAdvance` flag. */
+  advanceDeducted: number;
 }
 
 export type DeductionDecisions = Record<string, DeductionDecision>;
