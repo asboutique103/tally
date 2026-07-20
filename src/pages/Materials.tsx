@@ -2,6 +2,7 @@ import { Download, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '../components/EmptyState';
 import { Modal } from '../components/Modal';
+import { NumberField } from '../components/NumberField';
 import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
 import { downloadCsv, inventoryRows, number, uid } from '../lib/helpers';
@@ -171,7 +172,7 @@ export function Materials() {
             <label><span>Category *</span><input required value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} placeholder="Cement, Steel..." /></label>
             <label><span>HSN code *</span><input required inputMode="numeric" value={draft.hsnCode ?? ''} onChange={(event) => setDraft({ ...draft, hsnCode: event.target.value })} placeholder="72142090" /></label>
             <label><span>Unit *</span><select required value={draft.unit} onChange={(event) => setDraft({ ...draft, unit: event.target.value as Unit })}>{units.map((unit) => <option key={unit}>{unit}</option>)}</select></label>
-            <label><span>Opening stock *</span><input required type="number" min="0" step="0.01" value={draft.openingStock} onChange={(event) => setDraft({ ...draft, openingStock: Number(event.target.value) })} /></label>
+            <label><span>Opening stock *</span><NumberField required value={draft.openingStock} onChange={(value) => setDraft({ ...draft, openingStock: value ?? 0 })} min="0" step="0.01" /></label>
           </div>
           {draft.category.trim().toLowerCase() === 'steel' && (
             <div className="alert" style={{ background: '#fff8e6', border: '1px solid #f2d78a', color: '#7a5b00' }}>

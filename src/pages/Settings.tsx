@@ -1,5 +1,6 @@
 import { KeyRound, Save } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { NumberField } from '../components/NumberField';
 import { PageHeader } from '../components/PageHeader';
 import { cleanText, compactPhone, isFilled, isValidGstin, isValidIndianPhone, isZeroOrPositive } from '../lib/validation';
 import { isSupabaseConfigured } from '../lib/supabase';
@@ -112,7 +113,7 @@ export function Settings() {
               <label><span>Phone *</span><input required inputMode="tel" value={draft.phone} onChange={(event) => setDraft({ ...draft, phone: event.target.value })} /></label>
               <label><span>Email *</span><input required type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></label>
               <label><span>Currency</span><select value="INR" disabled aria-label="Currency"><option value="INR">INR - Indian Rupee</option></select><small>This GST build uses Indian currency and number formatting.</small></label>
-              <label><span>Default tax rate % *</span><input required type="number" min="0" step="0.01" value={draft.defaultTaxRate} onChange={(event) => setDraft({ ...draft, defaultTaxRate: Number(event.target.value) })} /></label>
+              <label><span>Default tax rate % *</span><NumberField required value={draft.defaultTaxRate} onChange={(value) => setDraft({ ...draft, defaultTaxRate: value ?? 0 })} min="0" step="0.01" /></label>
               <label><span>Financial year starts *</span><input required type="date" value={draft.financialYearStart} onChange={(event) => setDraft({ ...draft, financialYearStart: event.target.value })} /></label>
               <label><span>Invoice prefix *</span><input required value={draft.invoicePrefix} onChange={(event) => setDraft({ ...draft, invoicePrefix: event.target.value.toUpperCase() })} /></label>
               <label className="span-2"><span>Registered address *</span><textarea required rows={4} value={draft.address} onChange={(event) => setDraft({ ...draft, address: event.target.value })} /></label>

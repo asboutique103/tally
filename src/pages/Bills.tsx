@@ -1,6 +1,7 @@
 import { Download, Eye, Plus, Printer, Trash2 } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '../components/Modal';
+import { NumberField } from '../components/NumberField';
 import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
 import { TransactionItemsEditor } from '../components/TransactionItemsEditor';
@@ -230,13 +231,13 @@ export function Bills() {
 
           <TransactionItemsEditor materials={data.materials} items={draft.items} onChange={(items) => setDraft({ ...draft, items })} showTax={false} />
           <div className="form-grid three">
-            <label><span>Discount</span><input type="number" min="0" step="0.01" value={draft.discount} onChange={(event) => setDraft({ ...draft, discount: Number(event.target.value) })} /></label>
-            <label><span>Other charges</span><input type="number" min="0" step="0.01" value={draft.otherCharges} onChange={(event) => setDraft({ ...draft, otherCharges: Number(event.target.value) })} /></label>
+            <label><span>Discount</span><NumberField value={draft.discount} onChange={(value) => setDraft({ ...draft, discount: value ?? 0 })} min="0" step="0.01" /></label>
+            <label><span>Other charges</span><NumberField value={draft.otherCharges} onChange={(value) => setDraft({ ...draft, otherCharges: value ?? 0 })} min="0" step="0.01" /></label>
             <label><span>Stock posting</span><select value={draft.inventoryPosting} onChange={(event) => setDraft({ ...draft, inventoryPosting: event.target.value as Bill['inventoryPosting'] })}><option>Auto Post</option><option>Accounting Only</option></select><small>{draft.type === 'Purchase' ? 'Auto Post adds invoice quantities to central stock.' : 'Auto Post deducts invoice quantities from central stock.'}</small></label>
           </div>
           <div className="form-grid three">
             <label className="toggle-label span-2"><input type="checkbox" checked={draft.gstEnabled} onChange={(event) => setDraft({ ...draft, gstEnabled: event.target.checked })} /><span><strong>Include GST on this bill</strong><small>Turn on to charge GST. Taxable amount and GST auto-calculate below.</small></span></label>
-            {draft.gstEnabled && <label><span>GST % *</span><input required type="number" min="0" step="0.01" value={draft.gstRate} onChange={(event) => setDraft({ ...draft, gstRate: Number(event.target.value) })} /></label>}
+            {draft.gstEnabled && <label><span>GST % *</span><NumberField required value={draft.gstRate} onChange={(value) => setDraft({ ...draft, gstRate: value ?? 0 })} min="0" step="0.01" /></label>}
             {draft.gstEnabled && (
               <label className="toggle-label">
                 <input type="checkbox" checked={draft.gstType === 'IGST'} onChange={(event) => setDraft({ ...draft, gstType: event.target.checked ? 'IGST' : 'CGST_SGST' })} />

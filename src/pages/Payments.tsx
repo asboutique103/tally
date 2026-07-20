@@ -2,6 +2,7 @@ import { Download, Plus, Trash2, WalletCards } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '../components/EmptyState';
 import { Modal } from '../components/Modal';
+import { NumberField } from '../components/NumberField';
 import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
 import {
@@ -245,7 +246,7 @@ export function Payments() {
               {currentTargets.length === 0 && <small>No {categoryLabel[draft.category].toLowerCase()} available right now.</small>}
             </label>
             <label><span>Direction *</span><select required disabled value={draft.direction}><option>Paid</option><option>Received</option></select></label>
-            <label><span>Amount *</span><input required type="number" min="0.01" step="0.01" value={draft.amount} onChange={(event) => setDraft({ ...draft, amount: Number(event.target.value) })} /></label>
+            <label><span>Amount *</span><NumberField required value={draft.amount} onChange={(value) => setDraft({ ...draft, amount: value ?? 0 })} min="0.01" step="0.01" /></label>
             <label><span>Mode *</span><select required value={draft.mode} onChange={(event) => setDraft({ ...draft, mode: event.target.value as Payment['mode'] })}><option>Cash</option><option>Bank Transfer</option><option>Cheque</option><option>UPI</option><option>Card</option></select></label>
             <label><span>Reference {draft.mode !== 'Cash' ? '*' : ''}</span><input required={draft.mode !== 'Cash'} value={draft.reference} onChange={(event) => setDraft({ ...draft, reference: event.target.value })} placeholder="UTR / cheque / transaction ID" /></label>
             <label className="span-2"><span>Notes</span><textarea rows={3} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label>

@@ -2,6 +2,7 @@ import { Download, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '../components/EmptyState';
 import { Modal } from '../components/Modal';
+import { NumberField } from '../components/NumberField';
 import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
 import { billBalance, currency, downloadCsv, uid } from '../lib/helpers';
@@ -166,7 +167,7 @@ export function Suppliers() {
             <label><span>Phone *</span><input required inputMode="tel" value={draft.phone} onChange={(event) => setDraft({ ...draft, phone: event.target.value })} placeholder="9876543210" /></label>
             <label><span>Email</span><input type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></label>
             <label><span>GSTIN *</span><input required maxLength={15} value={draft.gstin} onChange={(event) => setDraft({ ...draft, gstin: event.target.value.toUpperCase() })} placeholder="33ABCDE1234F1Z5" /></label>
-            <label><span>Opening balance</span><input type="number" min="0" step="0.01" value={draft.openingBalance} onChange={(event) => setDraft({ ...draft, openingBalance: Number(event.target.value) })} /></label>
+            <label><span>Opening balance</span><NumberField value={draft.openingBalance} onChange={(value) => setDraft({ ...draft, openingBalance: value ?? 0 })} min="0" step="0.01" /></label>
             <label><span>Status *</span><select required value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as Supplier['status'] })}><option>Active</option><option>Inactive</option></select></label>
             <label className="span-2"><span>Address *</span><textarea required rows={3} value={draft.address} onChange={(event) => setDraft({ ...draft, address: event.target.value })} /></label>
           </div>

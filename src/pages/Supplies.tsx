@@ -2,6 +2,7 @@ import { Download, Eye, Plus, Printer, Trash2 } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '../components/EmptyState';
 import { Modal } from '../components/Modal';
+import { NumberField } from '../components/NumberField';
 import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
 import { TransactionItemsEditor } from '../components/TransactionItemsEditor';
@@ -163,7 +164,7 @@ export function Supplies() {
           </div>
           <div className="form-grid three">
             <label className="toggle-label span-2"><input type="checkbox" checked={draft.gstEnabled} onChange={(event) => setDraft({ ...draft, gstEnabled: event.target.checked })} /><span><strong>Include GST on this issue</strong><small>Turn on if this site issue should be billed with GST.</small></span></label>
-            {draft.gstEnabled && <label><span>GST % *</span><input required type="number" min="0" step="0.01" value={draft.gstRate} onChange={(event) => setDraft({ ...draft, gstRate: Number(event.target.value) })} /></label>}
+            {draft.gstEnabled && <label><span>GST % *</span><NumberField required value={draft.gstRate} onChange={(value) => setDraft({ ...draft, gstRate: value ?? 0 })} min="0" step="0.01" /></label>}
             {draft.gstEnabled && (
               <label className="toggle-label">
                 <input type="checkbox" checked={draft.gstType === 'IGST'} onChange={(event) => setDraft({ ...draft, gstType: event.target.checked ? 'IGST' : 'CGST_SGST' })} />

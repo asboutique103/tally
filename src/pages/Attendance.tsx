@@ -3,6 +3,7 @@ import { Ban, Calendar as CalendarIcon, Check, CreditCard, Download, Pencil, Plu
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { EmptyState } from '../components/EmptyState';
 import { Modal } from '../components/Modal';
+import { NumberField } from '../components/NumberField';
 import { PageHeader } from '../components/PageHeader';
 import { SearchBar } from '../components/SearchBar';
 import { StatCard } from '../components/StatCard';
@@ -118,15 +119,17 @@ export function Attendance() {
   );
 
   const advanceByEmployee = useMemo(() => {
-    const map = new Map<string, { employee: Employee | undefined; outstanding: typeof data.salaryAdvances; total: number }>();
+    const map = new Map<string, { employee: Employee | undefined; outstanding: typeof data.salaryAdvances; given: number }>();
     data.salaryAdvances.filter((a) => !a.cleared).forEach((advance) => {
-      const current = map.get(advance.employeeId) ?? { employee: data.employees.find((e) => e.id === advance.employeeId), outstanding: [], total: 0 };
+      const current = map.get(advance.employeeId) ?? { employee: data.employees.find((e) => e.id === advance.employeeId), outstanding: [], given: 0 };
       current.outstanding = [...current.outstanding, advance];
-      current.total += advance.amount;
+      current.given += advance.amount;
       map.set(advance.employeeId, current);
     });
-    return [...map.values()].sort((a, b) => b.total - a.total);
-  }, [data.salaryAdvances, data.employees]);
+    return [...map.values()]
+      .map((row) => ({ ...row, recovered: row.given - outstandingAdvanceFor(data, row.employee?.id ?? ''), remaining: outstandingAdvanceFor(data, row.employee?.id ?? '') }))
+      .sort((a, b) => b.remaining - a.remaining);
+  }, [data]);
 
   const openCreate = () => { setDraft({ ...emptyEmployee(), code: `EMP-${String(data.employees.length + 1).padStart(3, '0')}` }); setModalOpen(true); };
   const openEdit = (emp: Employee) => { setDraft(emp); setModalOpen(true); };
@@ -258,7 +261,7 @@ export function Attendance() {
         <StatCard label="Active staff" value={String(activeEmployees.length)} helper={`${periodLabel} · ${payCycleView}`} icon={Users} />
         <StatCard label="Gross payroll" value={currency(salarySummary.gross)} helper={`Per-day rate × ${payCycleView === 'Weekly' ? 'week' : total} days`} icon={CreditCard} tone="default" />
         <StatCard label="Net payable" value={currency(salarySummary.net)} helper="After deductions" icon={Check} tone="success" />
-        <StatCard label="Outstanding advances" value={currency(outstandingTotal)} helper="Not yet cleared" icon={Ban} tone={outstandingTotal > 0 ? 'warning' : 'default'} />
+        <StatCard label="Outstanding advances" value={currency(outstandingTotal)} helper="Not yet cleared or recovered via payroll" icon={Ban} tone={outstandingTotal > 0 ? 'warning' : 'default'} />
       </section>
 
       <div className="report-tabs">
@@ -367,12 +370,21 @@ export function Attendance() {
                         <td>{number(attendance.payableDays, 1)}</td>
                         <td><strong>{currency(b.earned)}</strong></td>
                         <td>
-                          <label className="deduction-toggle" title="Tick to deduct this outstanding advance from this period's payout">
-                            <input type="checkbox" checked={decision.deductAdvance} onChange={(ev) => void app.setDeductionDecision(e.id, periodKey, { ...decision, deductAdvance: ev.target.checked }).catch(() => undefined)} />
+                          <label className="deduction-toggle" title="Tick to deduct from this outstanding advance for this period. Untick to give the amount back.">
+                            <input
+                              type="checkbox"
+                              checked={decision.deductAdvance}
+                              onChange={(ev) => {
+                                const checked = ev.target.checked;
+                                const available = outstandingAdvanceFor(data, e.id, periodKey);
+                                const toDeduct = checked ? Math.min(available, b.earned) : 0;
+                                void app.setDeductionDecision(e.id, periodKey, { ...decision, deductAdvance: checked, advanceDeducted: toDeduct }).catch(() => undefined);
+                              }}
+                            />
                             {currency(outstandingAdvanceFor(data, e.id))}
                           </label>
-                          {decision.deductAdvance && b.advanceDeduction !== outstandingAdvanceFor(data, e.id) && (
-                            <span style={{ display: 'block', fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Deducting {currency(b.advanceDeduction)} this period</span>
+                          {decision.deductAdvance && decision.advanceDeducted > 0 && (
+                            <span style={{ display: 'block', fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Deducting {currency(decision.advanceDeducted)} this period</span>
                           )}
                           {outstandingAdvanceFor(data, e.id) > 0 && (
                             <button
@@ -411,21 +423,24 @@ export function Attendance() {
         <>
           {advanceByEmployee.length > 0 && (
             <section className="panel table-panel">
-              <div className="panel-header"><div><h2>Outstanding by employee</h2><span className="eyebrow">Clear every advance for a person in one tap — it stays in sync with the Salary tab</span></div></div>
+              <div className="panel-header"><div><h2>Outstanding by employee</h2><span className="eyebrow">Ticking "deduct advance" in the Salary tab actually recovers that amount here too — Clear all writes off whatever's still left</span></div></div>
               <div className="table-scroll">
                 <table className="data-table">
-                  <thead><tr><th>Employee</th><th>Outstanding advances</th><th>Total outstanding</th><th /></tr></thead>
+                  <thead><tr><th>Employee</th><th>Advances given</th><th>Amount given</th><th>Recovered via payroll</th><th>Still outstanding</th><th /></tr></thead>
                   <tbody>
-                    {advanceByEmployee.map(({ employee, outstanding, total: outstandingTotalForEmp }) => (
+                    {advanceByEmployee.map(({ employee, outstanding, given, recovered, remaining }) => (
                       <tr key={employee?.id ?? 'unknown'}>
                         <td><strong>{employee?.name ?? 'Unknown'}</strong><span>{employee?.code}</span></td>
                         <td>{outstanding.length}</td>
-                        <td><strong className="negative-text">{currency(outstandingTotalForEmp)}</strong></td>
+                        <td>{currency(given)}</td>
+                        <td className="positive-text">{recovered > 0 ? currency(recovered) : '—'}</td>
+                        <td><strong className="negative-text">{currency(remaining)}</strong></td>
                         <td>
                           <button
                             className="button secondary"
+                            disabled={remaining <= 0}
                             onClick={() => {
-                              if (!confirm(`Clear all outstanding advances for ${employee?.name} (${currency(outstandingTotalForEmp)})?`)) return;
+                              if (!confirm(`Clear all outstanding advances for ${employee?.name} (${currency(remaining)})?`)) return;
                               outstanding.forEach((advance) => void app.clearSalaryAdvance(advance.id).catch(() => undefined));
                             }}
                           >
@@ -703,8 +718,8 @@ export function Attendance() {
             <label><span>Branch</span><select value={draft.branch} onChange={(e) => setDraft({ ...draft, branch: e.target.value as StaffBranch })}>{branches.map((b) => <option key={b}>{b}</option>)}</select></label>
             <label><span>Department</span><input value={draft.department} onChange={(e) => setDraft({ ...draft, department: e.target.value })} placeholder="Site engineering, Stores..." /></label>
             <label><span>Pay cycle</span><select value={draft.payCycle} onChange={(e) => setDraft({ ...draft, payCycle: e.target.value as PayCycle })}><option>Weekly</option><option>Monthly</option></select></label>
-            <label><span>Gross salary (per day) *</span><input type="number" min="0" step="0.01" required value={draft.grossSalary} onChange={(e) => setDraft({ ...draft, grossSalary: Number(e.target.value) })} /></label>
-            <label><span>Other deduction</span><input type="number" min="0" value={draft.otherDeduction} onChange={(e) => setDraft({ ...draft, otherDeduction: Number(e.target.value) })} /></label>
+            <label><span>Gross salary (per day) *</span><NumberField required value={draft.grossSalary} onChange={(value) => setDraft({ ...draft, grossSalary: value ?? 0 })} min="0" step="0.01" /></label>
+            <label><span>Other deduction</span><NumberField value={draft.otherDeduction} onChange={(value) => setDraft({ ...draft, otherDeduction: value ?? 0 })} min="0" /></label>
             <label><span>Bank name</span><input value={draft.bankName ?? ''} onChange={(e) => setDraft({ ...draft, bankName: e.target.value })} /></label>
             <label><span>Account number</span><input value={draft.accountNumber ?? ''} onChange={(e) => setDraft({ ...draft, accountNumber: e.target.value })} /></label>
             <label><span>IFSC code</span><input value={draft.ifscCode ?? ''} onChange={(e) => setDraft({ ...draft, ifscCode: e.target.value })} /></label>
@@ -716,7 +731,7 @@ export function Attendance() {
       <Modal open={!!advanceModal} title={`Record advance — ${advanceModal?.name ?? ''}`} subtitle="Capture advance amount, taken date and reason. It remains outstanding until cleared." onClose={() => setAdvanceModal(null)}>
         <form onSubmit={submitAdvance} className="form-stack">
           <div className="form-grid two">
-            <label><span>Amount *</span><input type="number" min="1" required value={advanceAmount || ''} onChange={(e) => setAdvanceAmount(Number(e.target.value))} /></label>
+            <label><span>Amount *</span><NumberField required value={advanceAmount || undefined} onChange={(value) => setAdvanceAmount(value ?? 0)} min="1" /></label>
             <label><span>Advance taken date *</span><input type="date" required value={advanceDate} onChange={(e) => setAdvanceDate(e.target.value)} /></label>
             <label className="span-2"><span>Reason</span><input value={advanceReason} onChange={(e) => setAdvanceReason(e.target.value)} placeholder="Reason / purpose for advance" /></label>
           </div>
