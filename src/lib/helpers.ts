@@ -254,7 +254,7 @@ export const attendanceKey = (employeeId: string, year: number, month: number, d
 
 export const defaultDayAttendance = (): DayAttendance => ({ present: false, half: false, woff: false, absent: false });
 
-export const defaultDeductionDecision = (): DeductionDecision => ({ deductAdvance: false, deductOther: true });
+export const defaultDeductionDecision = (): DeductionDecision => ({ deductAdvance: false, deductOther: true, advanceDeducted: 0 });
 
 export const daysInMonth = (year: number, month: number) => new Date(year, month, 0).getDate();
 
@@ -298,15 +298,26 @@ export const calcEmployeeSalary = (data: AppData, employee: Employee, year: numb
   const attendance = summarizeAttendance(data, employee.id, year, month);
   const perDay = employee.grossSalary;
   const earned = Math.round(perDay * attendance.payableDays);
-  const outstandingAdvance = data.salaryAdvances.filter((advance) => advance.employeeId === employee.id && !advance.cleared).reduce((sum, advance) => sum + advance.amount, 0);
-  const advanceDeduction = decision.deductAdvance ? Math.min(outstandingAdvance, earned) : 0;
+  const advanceDeduction = decision.deductAdvance ? decision.advanceDeducted : 0;
   const otherDeduction = decision.deductOther ? employee.otherDeduction : 0;
   const totalDeductions = advanceDeduction + otherDeduction;
   return { perDay, earned, advanceDeduction, otherDeduction, totalDeductions, net: Math.max(0, earned - totalDeductions) };
 };
 
-export const outstandingAdvanceFor = (data: AppData, employeeId: string) =>
-  data.salaryAdvances.filter((advance) => advance.employeeId === employeeId && !advance.cleared).reduce((sum, advance) => sum + advance.amount, 0);
+/**
+ * Outstanding advance still owed by an employee, pooled across all their (non-cleared)
+ * advance records, minus whatever has already been recorded as recovered via payroll in
+ * any period. Pass `excludePeriodKey` to see what's available to allocate *to* that period
+ * itself (adding its own current contribution back before recomputing), so toggling the
+ * "deduct advance" checkbox on and off for the same period is stable and never double-counts.
+ */
+export const outstandingAdvanceFor = (data: AppData, employeeId: string, excludePeriodKey?: string) => {
+  const given = data.salaryAdvances.filter((advance) => advance.employeeId === employeeId && !advance.cleared).reduce((sum, advance) => sum + advance.amount, 0);
+  const recovered = Object.entries(data.deductionDecisions)
+    .filter(([key]) => key.startsWith(`${employeeId}_`) && key !== `${employeeId}_${excludePeriodKey}`)
+    .reduce((sum, [, decision]) => sum + (decision.advanceDeducted || 0), 0);
+  return Math.max(0, given - recovered);
+};
 
 // ── Analytics ────────────────────────────────────────────────────────────
 export interface DepartmentAnalytics {
@@ -425,8 +436,7 @@ export const calcEmployeeSalaryForDates = (data: AppData, employee: Employee, da
   const attendance = summarizeAttendanceForDates(data, employee.id, dates);
   const perDay = employee.grossSalary;
   const earned = Math.round(perDay * attendance.payableDays);
-  const outstandingAdvance = data.salaryAdvances.filter((advance) => advance.employeeId === employee.id && !advance.cleared).reduce((sum, advance) => sum + advance.amount, 0);
-  const advanceDeduction = decision.deductAdvance ? Math.min(outstandingAdvance, earned) : 0;
+  const advanceDeduction = decision.deductAdvance ? decision.advanceDeducted : 0;
   const otherDeduction = decision.deductOther ? employee.otherDeduction : 0;
   const totalDeductions = advanceDeduction + otherDeduction;
   return { perDay, earned, advanceDeduction, otherDeduction, totalDeductions, net: Math.max(0, earned - totalDeductions) };

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { seedData } from '../data/seed';
-import type { AppData, Bill, Employee, Material, Payment, Receipt, Site, Supply, Voucher } from '../types';
-import { accountBalances, allVouchers, attendanceKey, csvCell, departmentAnalytics, voucherTotals } from './helpers';
+import type { AppData, Bill, Employee, Material, Payment, Receipt, SalaryAdvance, Site, Supply, Voucher } from '../types';
+import { accountBalances, allVouchers, attendanceKey, calcEmployeeSalary, csvCell, departmentAnalytics, outstandingAdvanceFor, voucherTotals } from './helpers';
 import { validateWorkspace } from './workspace';
 
 const now = '2026-07-17T00:00:00.000Z';
@@ -91,14 +91,68 @@ describe('accounting and exports', () => {
     const data = workspace();
     const employee: Employee = {
       id: 'e1', code: 'EMP-1', name: 'Employee', branch: 'Labor', department: 'Civil',
-      payCycle: 'Monthly', grossSalary: 3100, salaryAdvance: 0, otherDeduction: 25,
+      payCycle: 'Monthly', grossSalary: 100, salaryAdvance: 0, otherDeduction: 25,
       status: 'Active', createdAt: now,
     };
     data.employees = [employee];
     data.attendance[attendanceKey(employee.id, 2026, 7, 1)] = { present: true, half: false, woff: false, absent: false };
-    data.deductionDecisions[employee.id] = { deductAdvance: false, deductOther: true };
-    data.deductionDecisions[`${employee.id}_month-2026-07`] = { deductAdvance: false, deductOther: false };
+    data.deductionDecisions[employee.id] = { deductAdvance: false, deductOther: true, advanceDeducted: 0 };
+    data.deductionDecisions[`${employee.id}_month-2026-07`] = { deductAdvance: false, deductOther: false, advanceDeducted: 0 };
 
     expect(departmentAnalytics(data, [employee], 2026, 7)[0].net).toBe(100);
+  });
+});
+
+describe('salary advance deductions', () => {
+  const employee: Employee = {
+    id: 'e2', code: 'EMP-2', name: 'Worker', branch: 'Labor', department: 'Civil',
+    payCycle: 'Monthly', grossSalary: 100, salaryAdvance: 0, otherDeduction: 0,
+    status: 'Active', createdAt: now,
+  };
+  const advance: SalaryAdvance = { id: 'adv1', employeeId: employee.id, amount: 500, givenDate: '2026-06-01', note: '', cleared: false, createdAt: now };
+
+  it('does not re-offer the same outstanding amount to every period once some has been recorded as deducted', () => {
+    const data = workspace();
+    data.employees = [employee];
+    data.salaryAdvances = [advance];
+
+    // Nothing recovered yet: the full amount is outstanding and available to any period.
+    expect(outstandingAdvanceFor(data, employee.id)).toBe(500);
+
+    // July already recovered 200 of it via payroll.
+    data.deductionDecisions[`${employee.id}_month-2026-07`] = { deductAdvance: true, deductOther: false, advanceDeducted: 200 };
+    expect(outstandingAdvanceFor(data, employee.id)).toBe(300);
+
+    // August must only ever see the remaining 300 — not the original 500 again.
+    expect(outstandingAdvanceFor(data, employee.id, 'month-2026-08')).toBe(300);
+
+    // Re-opening July itself should show what was available *before* July's own deduction
+    // (i.e. its own contribution added back), so toggling July on/off is stable.
+    expect(outstandingAdvanceFor(data, employee.id, 'month-2026-07')).toBe(500);
+  });
+
+  it('trusts the committed advanceDeducted amount rather than recomputing min(outstanding, earned) live', () => {
+    const data = workspace();
+    data.employees = [employee];
+    data.salaryAdvances = [advance];
+    data.attendance[attendanceKey(employee.id, 2026, 7, 1)] = { present: true, half: false, woff: false, absent: false };
+
+    const decision = { deductAdvance: true, deductOther: false, advanceDeducted: 200 };
+    const breakdown = calcEmployeeSalary(data, employee, 2026, 7, decision);
+    // Even though 500 is still nominally "outstanding" in the raw advance record, only the
+    // committed 200 for this period should hit net pay.
+    expect(breakdown.advanceDeduction).toBe(200);
+
+    // Unticking the box should deduct nothing, regardless of what was previously stored.
+    const untouched = calcEmployeeSalary(data, employee, 2026, 7, { ...decision, deductAdvance: false });
+    expect(untouched.advanceDeduction).toBe(0);
+  });
+
+  it('clamps outstanding at zero once a cleared advance and recorded deductions overlap', () => {
+    const data = workspace();
+    data.employees = [employee];
+    data.salaryAdvances = [{ ...advance, cleared: true }];
+    data.deductionDecisions[`${employee.id}_month-2026-07`] = { deductAdvance: true, deductOther: false, advanceDeducted: 200 };
+    expect(outstandingAdvanceFor(data, employee.id)).toBe(0);
   });
 });
