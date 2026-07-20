@@ -1,4 +1,5 @@
 import { Plus, Trash2 } from 'lucide-react';
+import { NumberField } from './NumberField';
 import { uid } from '../lib/helpers';
 import type { Material, TransactionItem } from '../types';
 
@@ -10,7 +11,8 @@ export function TransactionItemsEditor({ materials, items, onChange, showTax = t
   const add = () => {
     const first = materials[0];
     if (!first) return;
-    onChange([...items, { id: uid('item'), materialId: first.id, quantity: 1, rate: first.standardRate ?? 0, taxRate: 0 }]);
+    const steelDefault = steelCalc && isSteel(first);
+    onChange([...items, { id: uid('item'), materialId: first.id, quantity: steelDefault ? 0 : 1, rate: first.standardRate ?? 0, taxRate: 0 }]);
   };
 
   const updateSteel = (item: TransactionItem, patch: Partial<Pick<TransactionItem, 'steelSizeMm' | 'steelBundles' | 'steelKgPerBundle'>>) => {
@@ -41,7 +43,16 @@ export function TransactionItemsEditor({ materials, items, onChange, showTax = t
                   <td>
                     <select value={item.materialId} onChange={(event) => {
                       const selected = materials.find((candidate) => candidate.id === event.target.value);
-                      update(item.id, { materialId: event.target.value, rate: selected?.standardRate ?? item.rate });
+                      const becomesSteel = steelCalc && isSteel(selected);
+                      update(item.id, {
+                        materialId: event.target.value,
+                        rate: selected?.standardRate ?? item.rate,
+                        // Switching material clears any previous steel calc so a stale mm/bundle figure can't carry over silently.
+                        steelSizeMm: undefined,
+                        steelBundles: undefined,
+                        steelKgPerBundle: undefined,
+                        quantity: becomesSteel ? 0 : item.quantity,
+                      });
                     }}>
                       {materials.map((entry) => <option key={entry.id} value={entry.id}>{entry.name} ({entry.unit})</option>)}
                     </select>
@@ -50,18 +61,18 @@ export function TransactionItemsEditor({ materials, items, onChange, showTax = t
                     {steel ? (
                       <div className="steel-calc">
                         <div className="steel-calc-inputs">
-                          <label><span>mm</span><input type="number" min="0" step="0.1" placeholder="mm" value={item.steelSizeMm ?? ''} onChange={(event) => updateSteel(item, { steelSizeMm: event.target.value === '' ? undefined : Number(event.target.value) })} /></label>
-                          <label><span>Bundles</span><input type="number" min="0" step="1" placeholder="bundles" value={item.steelBundles ?? ''} onChange={(event) => updateSteel(item, { steelBundles: event.target.value === '' ? undefined : Number(event.target.value) })} /></label>
-                          <label><span>Kg/bundle</span><input type="number" min="0" step="0.01" placeholder="kg" value={item.steelKgPerBundle ?? ''} onChange={(event) => updateSteel(item, { steelKgPerBundle: event.target.value === '' ? undefined : Number(event.target.value) })} /></label>
+                          <label><span>mm</span><NumberField min="0" step="0.1" placeholder="mm" value={item.steelSizeMm} onChange={(value) => updateSteel(item, { steelSizeMm: value })} /></label>
+                          <label><span>Bundles</span><NumberField min="0" step="1" placeholder="bundles" value={item.steelBundles} onChange={(value) => updateSteel(item, { steelBundles: value })} /></label>
+                          <label><span>Kg/bundle</span><NumberField min="0" step="0.01" placeholder="kg" value={item.steelKgPerBundle} onChange={(value) => updateSteel(item, { steelKgPerBundle: value })} /></label>
                         </div>
-                        <div className="steel-calc-total">= <strong>{item.quantity || 0} kg</strong></div>
+                        <div className="steel-calc-total">= <strong>{item.quantity || 0} kg</strong>{!item.quantity && <span className="steel-calc-warning"> — enter bundles &amp; kg/bundle</span>}</div>
                       </div>
                     ) : (
-                      <input type="number" min="0.01" step="0.01" value={item.quantity} onChange={(event) => update(item.id, { quantity: Number(event.target.value) })} />
+                      <NumberField min="0.01" step="0.01" value={item.quantity} onChange={(value) => update(item.id, { quantity: value ?? 0 })} />
                     )}
                   </td>
-                  <td><input type="number" min="0" step="0.01" value={item.rate} onChange={(event) => update(item.id, { rate: Number(event.target.value) })} /></td>
-                  {showTax && <td><input type="number" min="0" step="0.01" value={item.taxRate} onChange={(event) => update(item.id, { taxRate: Number(event.target.value) })} /></td>}
+                  <td><NumberField min="0" step="0.01" value={item.rate} onChange={(value) => update(item.id, { rate: value ?? 0 })} /></td>
+                  {showTax && <td><NumberField min="0" step="0.01" value={item.taxRate} onChange={(value) => update(item.id, { taxRate: value ?? 0 })} /></td>}
                   <td className="amount-cell">₹{(item.quantity * item.rate * (1 + (showTax ? item.taxRate / 100 : 0))).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
                   <td><button className="icon-button danger" type="button" onClick={() => remove(item.id)} disabled={items.length === 1}><Trash2 size={16} /></button></td>
                 </tr>
