@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
@@ -16,6 +16,7 @@ import { Accounts } from './pages/Accounts';
 import { AuditTrail } from './pages/AuditTrail';
 import { InventoryLedger } from './pages/InventoryLedger';
 import { Attendance } from './pages/Attendance';
+import { Credit } from './pages/Credit';
 import { canRoleAccess, ROUTE_ACCESS } from './lib/access';
 import { AppProvider } from './store/AppContext';
 import { AuthProvider, useAuth } from './store/AuthContext';
@@ -46,7 +47,7 @@ export default function App() {
   return (
     <AuthProvider>
       <AppProvider>
-      <BrowserRouter>
+      <HashRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route element={<RequireAuth><Layout /></RequireAuth>}>
@@ -58,6 +59,7 @@ export default function App() {
             <Route path="sites" element={page('/sites', <Sites />)} />
             <Route path="bills" element={page('/bills', <Bills />)} />
             <Route path="payments" element={page('/payments', <Payments />)} />
+            <Route path="credit" element={page('/credit', <Credit />)} />
             <Route path="stock-ledger" element={page('/stock-ledger', <InventoryLedger />)} />
             <Route path="accounts" element={page('/accounts', <Accounts />)} />
             <Route path="attendance" element={page('/attendance', <Attendance />)} />
@@ -67,7 +69,7 @@ export default function App() {
           </Route>
           <Route path="*" element={<Navigate to={Object.keys(ROUTE_ACCESS)[0]} replace />} />
         </Routes>
-      </BrowserRouter>
+      </HashRouter>
       </AppProvider>
     </AuthProvider>
   );
