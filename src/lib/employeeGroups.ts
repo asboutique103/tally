@@ -9,19 +9,20 @@ export interface EmployeeGroupAssignment {
   isHead: boolean;
 }
 
-const splitDepartment = (value: string) => {
-  const markerIndex = value.lastIndexOf(GROUP_MARKER);
-  if (markerIndex < 0 || !value.endsWith(GROUP_SUFFIX)) return { department: value.trim(), assignment: null as EmployeeGroupAssignment | null };
-  const encoded = value.slice(markerIndex + GROUP_MARKER.length, -GROUP_SUFFIX.length);
+const splitDepartment = (value: unknown) => {
+  const text = typeof value === 'string' ? value : value == null ? '' : String(value);
+  const markerIndex = text.lastIndexOf(GROUP_MARKER);
+  if (markerIndex < 0 || !text.endsWith(GROUP_SUFFIX)) return { department: text.trim(), assignment: null as EmployeeGroupAssignment | null };
+  const encoded = text.slice(markerIndex + GROUP_MARKER.length, -GROUP_SUFFIX.length);
   try {
     const parsed = JSON.parse(decodeURIComponent(encoded)) as Partial<EmployeeGroupAssignment>;
     if (!parsed.name || !parsed.role) throw new Error('Invalid group assignment');
     return {
-      department: value.slice(0, markerIndex).trim(),
+      department: text.slice(0, markerIndex).trim(),
       assignment: { name: String(parsed.name), role: String(parsed.role), isHead: Boolean(parsed.isHead) },
     };
   } catch {
-    return { department: value.trim(), assignment: null as EmployeeGroupAssignment | null };
+    return { department: text.trim(), assignment: null as EmployeeGroupAssignment | null };
   }
 };
 

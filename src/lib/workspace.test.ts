@@ -36,6 +36,16 @@ describe('workspace integrity', () => {
     expect(employeeGroupAssignment(grouped)).toEqual({ name: 'Site Team A', role: 'Group Head', isHead: true });
   });
 
+  it('opens attendance safely for legacy employees with a null department', () => {
+    const employee = {
+      id: 'e-legacy', code: 'EMP-L', name: 'Legacy Employee', branch: 'Labor', department: null,
+      payCycle: 'Monthly', grossSalary: 700, salaryAdvance: 0, otherDeduction: 0,
+      status: 'Active', createdAt: now,
+    } as unknown as Employee;
+    expect(employeeDepartment(employee)).toBe('');
+    expect(employeeGroupAssignment(employee)).toBeNull();
+  });
+
   it('rejects stock movements that would make inventory negative', () => {
     const data = workspace();
     const supply: Supply = { id: 'is1', issueNo: 'ISS-1', date: '2026-07-02', siteId: site.id, items: [{ ...item, quantity: 6 }], notes: '', gstEnabled: false, gstRate: 0, createdAt: now };
