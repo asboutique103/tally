@@ -36,6 +36,12 @@ describe('workspace integrity', () => {
     expect(employeeGroupAssignment(grouped)).toEqual({ name: 'Site Team A', role: 'Group Head', isHead: true });
   });
 
+  it('allows a group member to be saved before a role is selected', () => {
+    const employee: Employee = { id: 'e-member', code: 'EMP-M2', name: 'New Member', branch: 'Labor', department: '', payCycle: 'Weekly', grossSalary: 700, salaryAdvance: 0, otherDeduction: 0, status: 'Active', createdAt: now };
+    const grouped = setEmployeeGroup(employee, { name: 'Site Team A', role: '', isHead: false });
+    expect(employeeGroupAssignment(grouped)).toEqual({ name: 'Site Team A', role: '', isHead: false });
+  });
+
   it('opens attendance safely for legacy employees with a null department', () => {
     const employee = {
       id: 'e-legacy', code: 'EMP-L', name: 'Legacy Employee', branch: 'Labor', department: null,

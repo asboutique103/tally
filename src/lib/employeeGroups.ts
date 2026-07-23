@@ -16,10 +16,10 @@ const splitDepartment = (value: unknown) => {
   const encoded = text.slice(markerIndex + GROUP_MARKER.length, -GROUP_SUFFIX.length);
   try {
     const parsed = JSON.parse(decodeURIComponent(encoded)) as Partial<EmployeeGroupAssignment>;
-    if (!parsed.name || !parsed.role) throw new Error('Invalid group assignment');
+    if (!parsed.name) throw new Error('Invalid group assignment');
     return {
       department: text.slice(0, markerIndex).trim(),
-      assignment: { name: String(parsed.name), role: String(parsed.role), isHead: Boolean(parsed.isHead) },
+      assignment: { name: String(parsed.name), role: parsed.role == null ? '' : String(parsed.role), isHead: Boolean(parsed.isHead) },
     };
   } catch {
     return { department: text.trim(), assignment: null as EmployeeGroupAssignment | null };
