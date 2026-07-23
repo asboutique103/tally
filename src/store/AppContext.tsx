@@ -208,7 +208,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...current, deductionDecisions: { ...current.deductionDecisions, [`${employeeId}_${periodKey}`]: decision },
     }), { action: 'Updated', module: 'Payroll', documentNo: periodKey, details: `Deduction decision updated for ${employeeId}` },
     (token) => db.setDeductionDecision(token, employeeId, periodKey, decision)),
-    getDeductionDecision: (employeeId, periodKey) => data.deductionDecisions[`${employeeId}_${periodKey}`] ?? defaultDeductionDecision(),
+    getDeductionDecision: (employeeId, periodKey) => {
+      const stored = data.deductionDecisions[`${employeeId}_${periodKey}`];
+      if (!stored) return defaultDeductionDecision();
+      const savedAmount = Number(stored.advanceDeducted);
+      return {
+        ...defaultDeductionDecision(),
+        ...stored,
+        advanceDeducted: stored.deductAdvance && Number.isFinite(savedAmount) ? Math.max(0, savedAmount) : stored.deductAdvance ? Number.NaN : 0,
+      };
+    },
     addSalaryAdvance: (advance) => commit((current) => ({ ...current, salaryAdvances: [...current.salaryAdvances, advance] }), {
       action: 'Created', module: 'Salary Advances', documentNo: advance.id, details: `Advance ${advance.amount} recorded`,
     }, (token) => db.addSalaryAdvance(token, advance)),
