@@ -16,6 +16,7 @@ export const ROUTE_ACCESS: Record<string, Role[]> = {
   '/sites': ['Owner', 'Admin', 'Site Engineer'],
   '/bills': ACCOUNTING_ROLES,
   '/payments': ACCOUNTING_ROLES,
+  '/credit': ACCOUNTING_ROLES,
   '/accounts': ACCOUNTING_ROLES,
   '/attendance': OWNER_ADMIN,
   '/reports': ['Owner', 'Admin', 'Accountant', 'Storekeeper', 'Site Engineer', 'Viewer'],

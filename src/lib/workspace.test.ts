@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { seedData } from '../data/seed';
-import type { AppData, Bill, Employee, Material, Payment, Receipt, SalaryAdvance, Site, Supply, Voucher } from '../types';
-import { accountBalances, allVouchers, attendanceKey, calcEmployeeSalary, csvCell, departmentAnalytics, outstandingAdvanceFor, voucherTotals } from './helpers';
+import type { AppData, Bill, DeductionDecision, Employee, Material, Payment, Receipt, SalaryAdvance, Site, Supply, Voucher } from '../types';
+import { accountBalances, allVouchers, attendanceKey, calcEmployeeSalary, csvCell, departmentAnalytics, outstandingAdvanceFor, summarizeAttendance, voucherTotals } from './helpers';
+import { employeeDepartment, employeeGroupAssignment, setEmployeeGroup } from './employeeGroups';
 import { validateWorkspace } from './workspace';
 
 const now = '2026-07-17T00:00:00.000Z';
@@ -18,6 +19,23 @@ const workspace = (): AppData => ({
 });
 
 describe('workspace integrity', () => {
+  it('calculates 1.5-day and 2-day work multipliers in attendance payroll', () => {
+    const data = workspace();
+    const employee: Employee = { id: 'e-multi', code: 'EMP-M', name: 'Electrician', branch: 'Electrician', department: 'Site', payCycle: 'Monthly', grossSalary: 1000, salaryAdvance: 0, otherDeduction: 0, status: 'Active', createdAt: now };
+    data.employees = [employee];
+    data.attendance[attendanceKey(employee.id, 2026, 7, 1)] = { present: true, half: true, woff: false, absent: false };
+    data.attendance[attendanceKey(employee.id, 2026, 7, 2)] = { present: true, half: false, woff: true, absent: false };
+    expect(summarizeAttendance(data, employee.id, 2026, 7)).toMatchObject({ workingDays: 2, payableDays: 3.5, presentDays: 3.5 });
+    expect(calcEmployeeSalary(data, employee, 2026, 7, { deductAdvance: false, deductOther: false, advanceDeducted: 0 }).earned).toBe(3500);
+  });
+
+  it('stores group assignments without losing the employee department', () => {
+    const employee: Employee = { id: 'e-group', code: 'EMP-G', name: 'Supervisor', branch: 'Mesthri', department: 'Operations', payCycle: 'Monthly', grossSalary: 900, salaryAdvance: 0, otherDeduction: 0, status: 'Active', createdAt: now };
+    const grouped = setEmployeeGroup(employee, { name: 'Site Team A', role: 'Group Head', isHead: true });
+    expect(employeeDepartment(grouped)).toBe('Operations');
+    expect(employeeGroupAssignment(grouped)).toEqual({ name: 'Site Team A', role: 'Group Head', isHead: true });
+  });
+
   it('rejects stock movements that would make inventory negative', () => {
     const data = workspace();
     const supply: Supply = { id: 'is1', issueNo: 'ISS-1', date: '2026-07-02', siteId: site.id, items: [{ ...item, quantity: 6 }], notes: '', gstEnabled: false, gstRate: 0, createdAt: now };
@@ -146,6 +164,36 @@ describe('salary advance deductions', () => {
     // Unticking the box should deduct nothing, regardless of what was previously stored.
     const untouched = calcEmployeeSalary(data, employee, 2026, 7, { ...decision, deductAdvance: false });
     expect(untouched.advanceDeduction).toBe(0);
+  });
+
+  it('repairs a legacy checked decision that has no saved advanceDeducted amount', () => {
+    const data = workspace();
+    data.employees = [employee];
+    data.salaryAdvances = [advance];
+    data.attendance[attendanceKey(employee.id, 2026, 7, 1)] = { present: true, half: false, woff: false, absent: false };
+    const legacyDecision = { deductAdvance: true, deductOther: false } as DeductionDecision;
+
+    expect(calcEmployeeSalary(data, employee, 2026, 7, legacyDecision)).toMatchObject({
+      earned: 100,
+      advanceDeduction: 100,
+      totalDeductions: 100,
+      net: 0,
+    });
+  });
+
+  it('keeps the current period deduction available while calculating that period', () => {
+    const data = workspace();
+    data.employees = [employee];
+    data.salaryAdvances = [advance];
+    data.attendance[attendanceKey(employee.id, 2026, 7, 1)] = { present: true, half: false, woff: false, absent: false };
+    const decision = { deductAdvance: true, deductOther: false, advanceDeducted: 80 };
+    data.deductionDecisions[`${employee.id}_month-2026-07`] = decision;
+
+    expect(calcEmployeeSalary(data, employee, 2026, 7, decision)).toMatchObject({
+      advanceDeduction: 80,
+      totalDeductions: 80,
+      net: 20,
+    });
   });
 
   it('clamps outstanding at zero once a cleared advance and recorded deductions overlap', () => {

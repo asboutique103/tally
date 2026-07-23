@@ -1,4 +1,5 @@
 import type { AppData, Bill, DayAttendance, DeductionDecision, Employee, InventoryRow, Receipt, StockMovement, Supply, TransactionItem, Voucher, VoucherLine } from '../types';
+import { employeeDepartment } from './employeeGroups';
 
 export const uid = (_prefix = 'id') => crypto.randomUUID();
 export const dateInputValue = (date = new Date()) => {
@@ -254,6 +255,15 @@ export const attendanceKey = (employeeId: string, year: number, month: number, d
 
 export const defaultDayAttendance = (): DayAttendance => ({ present: false, half: false, woff: false, absent: false });
 
+export const attendancePayableWeight = (entry?: DayAttendance) => {
+  if (!entry) return 0;
+  if (entry.present && entry.woff) return 2;
+  if (entry.present && entry.half) return 1.5;
+  if (entry.present) return 1;
+  if (entry.half) return 0.5;
+  return 0;
+};
+
 export const defaultDeductionDecision = (): DeductionDecision => ({ deductAdvance: false, deductOther: true, advanceDeducted: 0 });
 
 export const daysInMonth = (year: number, month: number) => new Date(year, month, 0).getDate();
@@ -271,17 +281,17 @@ export interface MonthAttendanceSummary {
 
 export const summarizeAttendance = (data: AppData, employeeId: string, year: number, month: number): MonthAttendanceSummary => {
   const total = daysInMonth(year, month);
-  let presentDays = 0, halfDays = 0, weekOffs = 0, absentDays = 0;
+  let presentDays = 0, halfDays = 0, weekOffs = 0, absentDays = 0, workingDays = 0, payableDays = 0;
   for (let day = 1; day <= total; day++) {
     const entry = data.attendance[attendanceKey(employeeId, year, month, day)];
     if (!entry) continue;
-    if (entry.woff) weekOffs++;
+    if (entry.present) presentDays += attendancePayableWeight(entry);
+    else if (entry.woff) weekOffs++;
     else if (entry.half) halfDays++;
-    else if (entry.present) presentDays++;
     else if (entry.absent) absentDays++;
+    if (entry.present || entry.woff || entry.half || entry.absent) workingDays++;
+    payableDays += attendancePayableWeight(entry);
   }
-  const workingDays = presentDays + halfDays + weekOffs + absentDays;
-  const payableDays = presentDays + halfDays * 0.5;
   return { presentDays, halfDays, weekOffs, absentDays, workingDays, payableDays };
 };
 
@@ -298,7 +308,10 @@ export const calcEmployeeSalary = (data: AppData, employee: Employee, year: numb
   const attendance = summarizeAttendance(data, employee.id, year, month);
   const perDay = employee.grossSalary;
   const earned = Math.round(perDay * attendance.payableDays);
-  const advanceDeduction = decision.deductAdvance ? decision.advanceDeducted : 0;
+  const periodKey = `month-${year}-${String(month).padStart(2, '0')}`;
+  const availableAdvance = outstandingAdvanceFor(data, employee.id, periodKey);
+  const savedAdvanceDeduction = Number.isFinite(decision.advanceDeducted) ? Math.max(0, decision.advanceDeducted) : Math.min(availableAdvance, earned);
+  const advanceDeduction = decision.deductAdvance ? Math.min(savedAdvanceDeduction, availableAdvance) : 0;
   const otherDeduction = decision.deductOther ? employee.otherDeduction : 0;
   const totalDeductions = advanceDeduction + otherDeduction;
   return { perDay, earned, advanceDeduction, otherDeduction, totalDeductions, net: Math.max(0, earned - totalDeductions) };
@@ -334,7 +347,7 @@ export const departmentAnalytics = (data: AppData, employees: Employee[], year: 
   const total = daysInMonth(year, month);
   const map = new Map<string, DepartmentAnalytics>();
   employees.forEach((employee) => {
-    const key = employee.department || 'Unassigned';
+    const key = employeeDepartment(employee) || 'Unassigned';
     const current = map.get(key) ?? { department: key, employees: 0, gross: 0, net: 0, presentDays: 0, absentDays: 0 };
     const attendance = summarizeAttendance(data, employee.id, year, month);
     const breakdown = calcEmployeeSalary(data, employee, year, month, data.deductionDecisions[`${employee.id}_${periodKey}`] ?? defaultDeductionDecision());
@@ -373,8 +386,8 @@ export const dayAttendanceSummary = (data: AppData, employees: Employee[], year:
   employees.forEach((employee) => {
     const entry = data.attendance[attendanceKey(employee.id, year, month, day)];
     if (!entry) return;
-    if (entry.half) half++;
-    else if (entry.present) present++;
+    if (entry.present) present++;
+    else if (entry.half) half++;
     else if (entry.absent) absent++;
   });
   const total = employees.length;
@@ -418,17 +431,17 @@ export const weekLabel = (weekStartIso: string) => {
 };
 
 export const summarizeAttendanceForDates = (data: AppData, employeeId: string, dates: DateParts[]): MonthAttendanceSummary => {
-  let presentDays = 0, halfDays = 0, weekOffs = 0, absentDays = 0;
+  let presentDays = 0, halfDays = 0, weekOffs = 0, absentDays = 0, workingDays = 0, payableDays = 0;
   dates.forEach((part) => {
     const entry = data.attendance[attendanceKey(employeeId, part.year, part.month, part.day)];
     if (!entry) return;
-    if (entry.woff) weekOffs++;
+    if (entry.present) presentDays += attendancePayableWeight(entry);
+    else if (entry.woff) weekOffs++;
     else if (entry.half) halfDays++;
-    else if (entry.present) presentDays++;
     else if (entry.absent) absentDays++;
+    if (entry.present || entry.woff || entry.half || entry.absent) workingDays++;
+    payableDays += attendancePayableWeight(entry);
   });
-  const workingDays = presentDays + halfDays + weekOffs + absentDays;
-  const payableDays = presentDays + halfDays * 0.5;
   return { presentDays, halfDays, weekOffs, absentDays, workingDays, payableDays };
 };
 
@@ -436,7 +449,11 @@ export const calcEmployeeSalaryForDates = (data: AppData, employee: Employee, da
   const attendance = summarizeAttendanceForDates(data, employee.id, dates);
   const perDay = employee.grossSalary;
   const earned = Math.round(perDay * attendance.payableDays);
-  const advanceDeduction = decision.deductAdvance ? decision.advanceDeducted : 0;
+  const first = dates[0];
+  const periodKey = first ? `week-${first.year}-${String(first.month).padStart(2, '0')}-${String(first.day).padStart(2, '0')}` : undefined;
+  const availableAdvance = outstandingAdvanceFor(data, employee.id, periodKey);
+  const savedAdvanceDeduction = Number.isFinite(decision.advanceDeducted) ? Math.max(0, decision.advanceDeducted) : Math.min(availableAdvance, earned);
+  const advanceDeduction = decision.deductAdvance ? Math.min(savedAdvanceDeduction, availableAdvance) : 0;
   const otherDeduction = decision.deductOther ? employee.otherDeduction : 0;
   const totalDeductions = advanceDeduction + otherDeduction;
   return { perDay, earned, advanceDeduction, otherDeduction, totalDeductions, net: Math.max(0, earned - totalDeductions) };
