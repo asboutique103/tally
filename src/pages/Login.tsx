@@ -28,7 +28,7 @@ export function Login() {
     <div className="login-screen">
       <div className="login-card">
         <div className="login-brand">
-          <div className="brand-mark brand-mark-logo"><img src="/logo.png" alt="VMV Enterprise" /></div>
+          <div className="brand-mark brand-mark-logo"><img src={`${import.meta.env.BASE_URL}logo.png`} alt="VMV Enterprise" /></div>
           <div>
             <strong>VMV Enterprise</strong>
             <span>Building Today · Creating Tomorrow</span>

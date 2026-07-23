@@ -9,35 +9,42 @@ import {
   amountInIndianWords, billBalance, billTotal, currency, downloadCsv, gstAmount, inventoryRows,
   nextDocumentNo, stockShortage, taxableAmount, today, uid,
 } from '../lib/helpers';
+import { directCustomerPhone, directCustomerReference, isDirectCustomerBill } from '../lib/directCustomers';
+import { printInvoiceWhenReady } from '../lib/print';
 import { cleanText, hasValidItems, hasDuplicate, isFilled, isSameOrAfter, isValidGstin } from '../lib/validation';
 import { useApp } from '../store/AppContext';
-import type { Bill, BillType } from '../types';
+import type { Bill, BillType, Payment } from '../types';
 
 const formatDate = (value: string) => value ? new Date(value).toLocaleDateString('en-IN') : '—';
+type InvoiceKind = BillType | 'Direct Customer';
+type BillFilter = 'All' | 'Purchase' | 'Client' | 'Direct Customers';
+type DirectPaymentChoice = 'Full payment' | 'Partial payment' | 'Credit sale';
 
 export function Bills() {
-  const { data, addBill, deleteBill } = useApp();
+  const { data, addBill, addPayment, deleteBill } = useApp();
   const first = data.materials[0];
 
-  const empty = (type: BillType = 'Purchase'): Bill => {
+  const empty = (kind: InvoiceKind = 'Purchase'): Bill => {
+    const type: BillType = kind === 'Purchase' ? 'Purchase' : 'Client';
+    const direct = kind === 'Direct Customer';
     const supplier = data.suppliers[0];
     const site = data.sites[0];
     return {
       id: uid('bill'),
-      billNo: nextDocumentNo(type === 'Purchase' ? 'PB' : data.settings.invoicePrefix || 'INV', data.bills.filter((b) => b.type === type).map((bill) => bill.billNo)),
+      billNo: nextDocumentNo(type === 'Purchase' ? 'PB' : direct ? 'DC' : data.settings.invoicePrefix || 'INV', data.bills.map((bill) => bill.billNo)),
       type,
       date: today(),
       dueDate: today(),
       supplierId: type === 'Purchase' ? supplier?.id : undefined,
-      siteId: type === 'Client' ? site?.id : undefined,
-      partyName: type === 'Purchase' ? supplier?.name ?? '' : site?.clientName || site?.name || '',
-      partyAddress: type === 'Purchase' ? supplier?.address ?? '' : site?.location ?? '',
+      siteId: type === 'Client' && !direct ? site?.id : undefined,
+      partyName: type === 'Purchase' ? supplier?.name ?? '' : direct ? '' : site?.clientName || site?.name || '',
+      partyAddress: type === 'Purchase' ? supplier?.address ?? '' : direct ? '' : site?.location ?? '',
       partyGstin: type === 'Purchase' ? supplier?.gstin ?? '' : '',
       state: 'TAMIL NADU',
-      deliveryAddress: type === 'Client' ? site?.location ?? '' : '',
+      deliveryAddress: type === 'Client' && !direct ? site?.location ?? '' : '',
       ewayBillNo: '',
       vehicleNo: '',
-      referenceNo: '',
+      referenceNo: direct ? directCustomerReference('') : '',
       items: [{ id: uid('bi'), materialId: first?.id ?? '', quantity: 1, rate: first?.standardRate ?? 0, taxRate: 0 }],
       discount: 0,
       otherCharges: 0,
@@ -52,14 +59,27 @@ export function Bills() {
   };
 
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<'All' | BillType>('All');
+  const [filter, setFilter] = useState<BillFilter>('All');
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<Bill | null>(null);
   const [draft, setDraft] = useState<Bill>(empty());
+  const [draftKind, setDraftKind] = useState<InvoiceKind>('Purchase');
+  const [directPhone, setDirectPhone] = useState('');
+  const [paymentChoice, setPaymentChoice] = useState<DirectPaymentChoice>('Full payment');
+  const [paymentAmount, setPaymentAmount] = useState(0);
+  const [paymentMode, setPaymentMode] = useState<Payment['mode']>('Cash');
+  const [paymentReference, setPaymentReference] = useState('');
   const [error, setError] = useState('');
 
   const filtered = useMemo(
-    () => data.bills.filter((bill) => (filter === 'All' || bill.type === filter) && `${bill.billNo} ${bill.partyName} ${bill.status}`.toLowerCase().includes(query.toLowerCase())),
+    () => data.bills.filter((bill) => {
+      const direct = isDirectCustomerBill(bill);
+      const matchesFilter = filter === 'All'
+        || (filter === 'Purchase' && bill.type === 'Purchase')
+        || (filter === 'Client' && bill.type === 'Client' && !direct)
+        || (filter === 'Direct Customers' && direct);
+      return matchesFilter && `${bill.billNo} ${bill.partyName} ${directCustomerPhone(bill)} ${bill.status}`.toLowerCase().includes(query.toLowerCase());
+    }),
     [data.bills, filter, query],
   );
 
@@ -75,6 +95,7 @@ export function Bills() {
       deliveryAddress: cleanText(draft.deliveryAddress),
       ewayBillNo: cleanText(draft.ewayBillNo).toUpperCase(),
       vehicleNo: cleanText(draft.vehicleNo).toUpperCase(),
+      referenceNo: draftKind === 'Direct Customer' ? directCustomerReference(directPhone) : cleanText(draft.referenceNo).toUpperCase(),
       notes: cleanText(draft.notes),
       discount: draft.discount || 0,
       otherCharges: draft.otherCharges || 0,
@@ -88,6 +109,11 @@ export function Bills() {
     }
     if (!isSameOrAfter(next.dueDate, next.date)) {
       setError('Due date cannot be before the invoice date.');
+      return;
+    }
+    const normalizedPhone = directPhone.replace(/\D/g, '');
+    if (draftKind === 'Direct Customer' && (normalizedPhone.length < 7 || normalizedPhone.length > 15)) {
+      setError('Enter a valid customer phone number with 7 to 15 digits.');
       return;
     }
     const partyGstin = next.partyGstin ?? '';
@@ -117,8 +143,44 @@ export function Bills() {
         return;
       }
     }
+    const total = billTotal(next);
+    const amountToRecord = draftKind !== 'Direct Customer' || paymentChoice === 'Credit sale'
+      ? 0
+      : paymentChoice === 'Full payment' ? total : paymentAmount;
+    if (draftKind === 'Direct Customer' && paymentChoice === 'Partial payment' && (amountToRecord <= 0 || amountToRecord >= total)) {
+      setError(`Partial payment must be more than zero and less than the invoice total of ${currency(total)}.`);
+      return;
+    }
+    if (draftKind === 'Direct Customer' && amountToRecord > 0 && paymentMode !== 'Cash' && !isFilled(paymentReference)) {
+      setError('Transaction reference is mandatory for bank transfer, cheque, UPI and card payments.');
+      return;
+    }
     try {
       await addBill(next);
+      if (amountToRecord > 0) {
+        const payment: Payment = {
+          id: uid('pay'),
+          paymentNo: nextDocumentNo('RCPT', data.payments.map((entry) => entry.paymentNo)),
+          date: next.date,
+          category: 'Bill',
+          targetId: next.id,
+          billId: next.id,
+          partyName: next.partyName,
+          direction: 'Received',
+          amount: amountToRecord,
+          mode: paymentMode,
+          reference: cleanText(paymentReference).toUpperCase(),
+          notes: `${paymentChoice} received with direct customer invoice ${next.billNo}.`,
+          createdAt: new Date().toISOString(),
+        };
+        try {
+          await addPayment(payment);
+        } catch (paymentError) {
+          setOpen(false);
+          window.alert(`Invoice ${next.billNo} was saved, but its payment could not be recorded. Open Payments and record ${currency(amountToRecord)} against this invoice. ${paymentError instanceof Error ? paymentError.message : ''}`);
+          return;
+        }
+      }
       setOpen(false);
       setError('');
     } catch (saveError) {
@@ -126,26 +188,32 @@ export function Bills() {
     }
   };
 
-  const changeType = (type: BillType) => {
-    const supplier = data.suppliers[0];
-    const site = data.sites[0];
+  const changeType = (kind: InvoiceKind) => {
     setError('');
-    setDraft({
-      ...draft,
-      type,
-      billNo: nextDocumentNo(type === 'Purchase' ? 'PB' : data.settings.invoicePrefix || 'INV', data.bills.filter((bill) => bill.type === type).map((bill) => bill.billNo)),
-      supplierId: type === 'Purchase' ? supplier?.id : undefined,
-      siteId: type === 'Client' ? site?.id : undefined,
-      partyName: type === 'Purchase' ? supplier?.name ?? '' : site?.clientName || site?.name || '',
-      partyAddress: type === 'Purchase' ? supplier?.address ?? '' : site?.location ?? '',
-      partyGstin: type === 'Purchase' ? supplier?.gstin ?? '' : '',
-      deliveryAddress: type === 'Client' ? site?.location ?? '' : '',
-    });
+    setDraftKind(kind);
+    setDirectPhone('');
+    setPaymentChoice('Full payment');
+    setPaymentAmount(0);
+    setPaymentMode('Cash');
+    setPaymentReference('');
+    setDraft({ ...empty(kind), items: draft.items });
+  };
+
+  const openCreate = (kind: InvoiceKind = 'Client') => {
+    setDraftKind(kind);
+    setDraft(empty(kind));
+    setDirectPhone('');
+    setPaymentChoice('Full payment');
+    setPaymentAmount(0);
+    setPaymentMode('Cash');
+    setPaymentReference('');
+    setError('');
+    setOpen(true);
   };
 
   const printBill = (bill: Bill) => {
     setView(bill);
-    setTimeout(() => window.print(), 120);
+    printInvoiceWhenReady();
   };
 
   return (
@@ -153,12 +221,12 @@ export function Bills() {
       <PageHeader
         eyebrow="Accounts receivable & payable"
         title="Bills & invoices"
-        description="Create supplier purchase bills and client/site invoices with optional GST, discounts, due dates and payment status."
+        description="Create supplier bills, project invoices and direct customer sales with GST, IGST, instant payment or credit tracking."
         actions={(
           <>
             <button className="button secondary" onClick={() => downloadCsv('bills.csv', filtered.map((bill) => ({
               Bill: bill.billNo,
-              Type: bill.type,
+              Type: isDirectCustomerBill(bill) ? 'Direct Customer' : bill.type,
               Date: bill.date,
               DueDate: bill.dueDate,
               Party: bill.partyName,
@@ -168,7 +236,7 @@ export function Bills() {
               Balance: billBalance(data, bill),
               Status: bill.status,
             })))}><Download size={17} /> Export</button>
-            <button className="button primary" disabled={!data.materials.length} onClick={() => { setDraft(empty('Client')); setError(''); setOpen(true); }}><Plus size={17} /> New invoice</button>
+            <button className="button primary" disabled={!data.materials.length} onClick={() => openCreate('Client')}><Plus size={17} /> New invoice</button>
           </>
         )}
       />
@@ -176,7 +244,7 @@ export function Bills() {
       <section className="panel table-panel">
         <div className="table-toolbar split-toolbar">
           <SearchBar value={query} onChange={setQuery} placeholder="Search bill, party or status..." />
-          <div className="segmented">{(['All', 'Purchase', 'Client'] as const).map((value) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{value}</button>)}</div>
+          <div className="segmented">{(['All', 'Purchase', 'Client', 'Direct Customers'] as const).map((value) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{value}</button>)}</div>
         </div>
         <div className="table-scroll">
           <table className="data-table">
@@ -187,8 +255,8 @@ export function Bills() {
               return (
                 <tr key={bill.id}>
                   <td><strong>{bill.billNo}</strong><span>Due {formatDate(bill.dueDate)}</span></td>
-                  <td><span className={`soft-badge ${bill.type === 'Purchase' ? 'warning-badge' : ''}`}>{bill.type}</span><span>{formatDate(bill.date)}</span></td>
-                  <td><strong>{bill.partyName}</strong><span>{bill.partyGstin ? `GSTIN ${bill.partyGstin}` : bill.type === 'Purchase' ? 'Supplier payable' : 'Client receivable'}</span></td>
+                  <td><span className={`soft-badge ${bill.type === 'Purchase' ? 'warning-badge' : ''}`}>{isDirectCustomerBill(bill) ? 'Direct Customer' : bill.type}</span><span>{formatDate(bill.date)}</span></td>
+                  <td><strong>{bill.partyName}</strong><span>{bill.partyGstin ? `GSTIN ${bill.partyGstin}` : bill.type === 'Purchase' ? 'Supplier payable' : isDirectCustomerBill(bill) ? `${directCustomerPhone(bill)} · Store customer` : 'Client receivable'}</span></td>
                   <td><span className={`soft-badge ${bill.gstEnabled ? '' : 'warning-badge'}`}>{bill.gstEnabled ? `${bill.gstRate}% ${bill.gstType === 'IGST' ? 'IGST' : 'GST'}` : 'No GST'}</span></td>
                   <td><strong>{currency(total)}</strong></td>
                   <td>{currency(total - balance)}</td>
@@ -203,30 +271,34 @@ export function Bills() {
         </div>
       </section>
 
-      <Modal open={open} title="Create bill / invoice" subtitle="Choose purchase for supplier bills or client for GST invoice print." onClose={() => setOpen(false)} wide>
+      <Modal open={open} title="Create bill / invoice" subtitle="Choose supplier purchase, project client or a direct store customer." onClose={() => setOpen(false)} wide>
         <form className="form-stack" onSubmit={submit}>
           {error && <div className="alert danger-alert">{error}</div>}
           <div className="segmented form-segmented">
-            <button type="button" className={draft.type === 'Purchase' ? 'active' : ''} onClick={() => changeType('Purchase')}>Purchase bill</button>
-            <button type="button" className={draft.type === 'Client' ? 'active' : ''} onClick={() => changeType('Client')}>Client invoice</button>
+            <button type="button" className={draftKind === 'Purchase' ? 'active' : ''} onClick={() => changeType('Purchase')}>Purchase bill</button>
+            <button type="button" className={draftKind === 'Client' ? 'active' : ''} onClick={() => changeType('Client')}>Project client</button>
+            <button type="button" className={draftKind === 'Direct Customer' ? 'active' : ''} onClick={() => changeType('Direct Customer')}>Direct customer</button>
           </div>
 
           <div className="form-grid three">
             <label><span>Invoice / bill number *</span><input required value={draft.billNo} onChange={(event) => setDraft({ ...draft, billNo: event.target.value })} /></label>
             <label><span>Invoice date *</span><input required type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} /></label>
             <label><span>Due date *</span><input required type="date" value={draft.dueDate} onChange={(event) => setDraft({ ...draft, dueDate: event.target.value })} /></label>
-            {draft.type === 'Purchase' ? (
+            {draftKind === 'Purchase' ? (
               <label className="span-2"><span>Supplier (optional — pick to auto-fill, or type party name manually below)</span><select value={draft.supplierId ?? ''} onChange={(event) => { const supplier = data.suppliers.find((item) => item.id === event.target.value); setDraft({ ...draft, supplierId: event.target.value || undefined, partyName: supplier?.name ?? draft.partyName, partyAddress: supplier?.address ?? draft.partyAddress, partyGstin: supplier?.gstin ?? draft.partyGstin }); }}><option value="">Manual entry — no saved supplier</option>{data.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
-            ) : (
+            ) : draftKind === 'Client' ? (
               <label className="span-2"><span>Project / client (optional — pick to auto-fill, or type party name manually below)</span><select value={draft.siteId ?? ''} onChange={(event) => { const site = data.sites.find((item) => item.id === event.target.value); setDraft({ ...draft, siteId: event.target.value || undefined, partyName: site?.clientName || site?.name || draft.partyName, partyAddress: site?.location ?? draft.partyAddress, deliveryAddress: site?.location ?? draft.deliveryAddress }); }}><option value="">Manual entry — no saved site</option>{data.sites.map((site) => <option key={site.id} value={site.id}>{site.name} — {site.clientName}</option>)}</select></label>
+            ) : (
+              <div className="alert info-alert span-2">This sale will deduct stock and any amount received now will be added automatically to Payments. Unpaid balance will appear in Credit.</div>
             )}
-            <label className="span-2"><span>Party / client name *</span><input required value={draft.partyName} onChange={(event) => setDraft({ ...draft, partyName: event.target.value })} placeholder="Type or edit the billed party's name" /></label>
+            <label className="span-2"><span>{draftKind === 'Direct Customer' ? 'Customer name' : 'Party / client name'} *</span><input required value={draft.partyName} onChange={(event) => setDraft({ ...draft, partyName: event.target.value })} placeholder={draftKind === 'Direct Customer' ? 'Customer full name' : "Type or edit the billed party's name"} /></label>
+            {draftKind === 'Direct Customer' && <label><span>Customer phone *</span><input required inputMode="tel" value={directPhone} onChange={(event) => setDirectPhone(event.target.value)} placeholder="10-digit mobile number" /></label>}
             <label className="span-2"><span>Party address *</span><textarea required rows={3} value={draft.partyAddress ?? ''} onChange={(event) => setDraft({ ...draft, partyAddress: event.target.value })} /></label>
             <label><span>Party GSTIN / URP</span><input maxLength={15} value={draft.partyGstin ?? ''} onChange={(event) => setDraft({ ...draft, partyGstin: event.target.value.toUpperCase() })} placeholder="GSTIN, URP, or leave blank" /></label>
             <label><span>State *</span><input required value={draft.state ?? ''} onChange={(event) => setDraft({ ...draft, state: event.target.value.toUpperCase() })} placeholder="TAMIL NADU" /></label>
             <label><span>E-way bill no.</span><input value={draft.ewayBillNo ?? ''} onChange={(event) => setDraft({ ...draft, ewayBillNo: event.target.value })} /></label>
             <label><span>Vehicle number</span><input value={draft.vehicleNo ?? ''} onChange={(event) => setDraft({ ...draft, vehicleNo: event.target.value.toUpperCase() })} /></label>
-            <label className="span-2"><span>Delivered to {draft.type === 'Client' ? '*' : ''}</span><input required={draft.type === 'Client'} value={draft.deliveryAddress ?? ''} onChange={(event) => setDraft({ ...draft, deliveryAddress: event.target.value })} /></label>
+            <label className="span-2"><span>Delivered to {draftKind === 'Client' ? '*' : ''}</span><input required={draftKind === 'Client'} value={draft.deliveryAddress ?? ''} onChange={(event) => setDraft({ ...draft, deliveryAddress: event.target.value })} placeholder={draftKind === 'Direct Customer' ? 'Optional delivery address / pickup note' : ''} /></label>
           </div>
 
           <TransactionItemsEditor materials={data.materials} items={draft.items} onChange={(items) => setDraft({ ...draft, items })} showTax={false} />
@@ -252,8 +324,30 @@ export function Bills() {
             <span>Discount -{currency(draft.discount)}</span>
             <strong>Grand total {currency(billTotal(draft))}</strong>
           </div>
+          {draftKind === 'Direct Customer' && (
+            <section className="direct-payment-box">
+              <div>
+                <strong>Payment at billing</strong>
+                <span>Choose how much the customer is paying now. The receipt is saved automatically in Payments.</span>
+              </div>
+              <div className="segmented form-segmented">
+                {(['Full payment', 'Partial payment', 'Credit sale'] as const).map((choice) => (
+                  <button type="button" key={choice} className={paymentChoice === choice ? 'active' : ''} onClick={() => setPaymentChoice(choice)}>{choice}</button>
+                ))}
+              </div>
+              {paymentChoice === 'Credit sale' ? (
+                <div className="alert info-alert">No payment will be recorded now. The full amount of <strong>{currency(billTotal(draft))}</strong> will appear in the Credit tracker.</div>
+              ) : (
+                <div className="form-grid three">
+                  <label><span>Amount received *</span>{paymentChoice === 'Full payment' ? <input readOnly value={currency(billTotal(draft))} /> : <NumberField required value={paymentAmount} onChange={(value) => setPaymentAmount(value ?? 0)} min="0.01" step="0.01" />}</label>
+                  <label><span>Payment mode *</span><select required value={paymentMode} onChange={(event) => setPaymentMode(event.target.value as Payment['mode'])}><option>Cash</option><option>UPI</option><option>Card</option><option>Bank Transfer</option><option>Cheque</option></select></label>
+                  <label><span>Transaction reference {paymentMode !== 'Cash' ? '*' : ''}</span><input required={paymentMode !== 'Cash'} value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="UTR / cheque / transaction ID" /></label>
+                </div>
+              )}
+            </section>
+          )}
           <label><span>Notes / terms</span><textarea rows={3} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label>
-          <div className="form-actions"><button type="button" className="button secondary" onClick={() => setOpen(false)}>Cancel</button><button className="button primary">Save bill</button></div>
+          <div className="form-actions"><button type="button" className="button secondary" onClick={() => setOpen(false)}>Cancel</button><button className="button primary">{draftKind === 'Direct Customer' ? 'Save invoice & payment' : 'Save bill'}</button></div>
         </form>
       </Modal>
 
@@ -266,7 +360,7 @@ export function Bills() {
           return (
             <div className="vmv-invoice">
               <div className="vmv-company-box">
-                <img src="/logo.png" alt="Company logo" className="vmv-logo" />
+                <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Company logo" className="vmv-logo" />
                 <h1>{data.settings.companyName}</h1>
                 <p>{data.settings.address}</p>
                 <div><strong>GST NO :</strong><span>{data.settings.gstin || '—'}</span><strong>PH NO –</strong><span>{data.settings.phone || '—'}</span></div>
@@ -277,6 +371,7 @@ export function Bills() {
                   <strong>TO,</strong>
                   <h3>{view.partyName}</h3>
                   <p>{view.partyAddress || '—'}</p>
+                  {isDirectCustomerBill(view) && directCustomerPhone(view) && <p><strong>Phone</strong> {directCustomerPhone(view)}</p>}
                   {view.deliveryAddress && <p><strong>Delivered to</strong> {view.deliveryAddress}</p>}
                 </div>
                 <div className="vmv-party-right">
@@ -328,7 +423,7 @@ export function Bills() {
                 </div>
                 <div className="vmv-sign"><strong>FOR {data.settings.companyName}</strong><span>Authorized Signatory</span></div>
               </div>
-              <div className="form-actions no-print"><button className="button primary" onClick={() => window.print()}><Printer size={17} /> Print invoice</button></div>
+              <div className="form-actions no-print"><button className="button primary" onClick={printInvoiceWhenReady}><Printer size={17} /> Print invoice</button></div>
             </div>
           );
         })()}

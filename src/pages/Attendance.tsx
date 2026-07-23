@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useMemo, useState, type FormEvent } from 'react';
-import { Ban, Calendar as CalendarIcon, Check, CreditCard, Download, Pencil, Plus, TrendingUp, Trash2, UserPlus, Users } from 'lucide-react';
+import { Ban, Calendar as CalendarIcon, Check, CreditCard, Download, Pencil, Plus, TrendingUp, Trash2, UserPlus, Users, UsersRound } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { EmptyState } from '../components/EmptyState';
 import { Modal } from '../components/Modal';
@@ -12,6 +12,7 @@ import {
   dateInputValue, dayAttendanceSummary, defaultDayAttendance, departmentAnalytics, downloadCsv, monthLabel, number, outstandingAdvanceFor,
   summarizeAttendance, summarizeAttendanceForDates, today, uid, weekDateParts, weekLabel,
 } from '../lib/helpers';
+import { employeeDepartment, employeeGroupAssignment, setEmployeeDepartment, setEmployeeGroup } from '../lib/employeeGroups';
 import { useApp } from '../store/AppContext';
 import type { DayAttendance, DeductionDecision, Employee, PayCycle, StaffBranch } from '../types';
 
@@ -29,6 +30,8 @@ const mondayIso = (date = new Date()) => { const day = date.getDay(); const diff
 
 function dayState(entry?: DayAttendance) {
   if (!entry) return 'blank';
+  if (entry.present && entry.woff) return 'double';
+  if (entry.present && entry.half) return 'one-half';
   if (entry.woff) return 'leave';
   if (entry.half) return 'half';
   if (entry.present) return 'present';
@@ -36,12 +39,15 @@ function dayState(entry?: DayAttendance) {
   return 'blank';
 }
 
-const DAY_LABEL: Record<string, string> = { blank: '', present: 'P', absent: 'A', half: 'HD', leave: 'L' };
+const DAY_LABEL: Record<string, string> = { blank: '', present: 'P', 'one-half': '1.5', double: '2', absent: 'A', half: 'HD', leave: 'L' };
+const GROUP_ROLES = ['Supervisor', 'Skilled Worker', 'Assistant', 'Helper', 'Driver', 'Operator', 'Accountant', 'Member'];
+type AttendanceTab = 'Attendance' | 'Salary' | 'Advances' | 'Employees' | 'Groups' | 'Analytics';
+interface GroupDraft { originalName: string; name: string; headId: string; memberRoles: Record<string, string>; }
 
 export function Attendance() {
   const app = useApp();
   const { data } = app;
-  const [tab, setTab] = useState<'Attendance' | 'Salary' | 'Advances' | 'Employees' | 'Analytics'>('Attendance');
+  const [tab, setTab] = useState<AttendanceTab>('Attendance');
   const [{ year, month }, setYM] = useState(currentYM());
   const [payCycleView, setPayCycleView] = useState<PayCycle>('Monthly');
   const [weekStart, setWeekStart] = useState(mondayIso());
@@ -53,6 +59,9 @@ export function Attendance() {
   const [advanceDate, setAdvanceDate] = useState(today());
   const [advanceReason, setAdvanceReason] = useState('');
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [groupDraft, setGroupDraft] = useState<GroupDraft>({ originalName: '', name: '', headId: '', memberRoles: {} });
+  const [groupError, setGroupError] = useState('');
 
   const total = daysInMonth(year, month);
   const label = monthLabel(year, month);
@@ -62,20 +71,21 @@ export function Attendance() {
   const activeEmployees = useMemo(() => data.employees.filter((e) => e.status === 'Active'), [data.employees]);
   const cycleEmployees = useMemo(() => activeEmployees.filter((e) => e.payCycle === payCycleView), [activeEmployees, payCycleView]);
   const filtered = useMemo(
-    () => cycleEmployees.filter((e) => `${e.name} ${e.department} ${e.code}`.toLowerCase().includes(query.toLowerCase())),
+    () => cycleEmployees.filter((e) => `${e.name} ${employeeDepartment(e)} ${employeeGroupAssignment(e)?.name ?? ''} ${e.code}`.toLowerCase().includes(query.toLowerCase())),
     [cycleEmployees, query],
   );
   const allFiltered = useMemo(
-    () => activeEmployees.filter((e) => `${e.name} ${e.department} ${e.code}`.toLowerCase().includes(query.toLowerCase())),
+    () => activeEmployees.filter((e) => `${e.name} ${employeeDepartment(e)} ${employeeGroupAssignment(e)?.name ?? ''} ${e.code}`.toLowerCase().includes(query.toLowerCase())),
     [activeEmployees, query],
   );
 
   const getDecision = useCallback((employeeId: string): DeductionDecision => app.getDeductionDecision(employeeId, periodKey), [app, periodKey]);
 
-  // Cycle order: Blank → Present → Absent → Half day → Blank
+  // Cycle order: Blank → Present → Absent → Half day → Blank.
+  // Non-Labor staff can upgrade a present mark to 1.5× or 2× using the small controls.
   const nextAttendanceState = (state: string): DayAttendance => {
     if (state === 'blank') return { present: true, absent: false, half: false, woff: false };
-    if (state === 'present') return { present: false, absent: true, half: false, woff: false };
+    if (state === 'present' || state === 'one-half' || state === 'double') return { present: false, absent: true, half: false, woff: false };
     if (state === 'absent') return { present: false, absent: false, half: true, woff: false };
     return defaultDayAttendance();
   };
@@ -90,6 +100,30 @@ export function Attendance() {
     const key = attendanceKey(emp.id, part.year, part.month, part.day);
     const next = nextAttendanceState(dayState(data.attendance[key]));
     void app.setAttendanceDay(emp.id, part.year, part.month, part.day, next).catch(() => undefined);
+  };
+
+  const setWorkMultiplier = (emp: Employee, part: { year: number; month: number; day: number }, multiplier: 1.5 | 2) => {
+    if (emp.branch === 'Labor') return;
+    const value: DayAttendance = multiplier === 1.5
+      ? { present: true, half: true, woff: false, absent: false }
+      : { present: true, half: false, woff: true, absent: false };
+    void app.setAttendanceDay(emp.id, part.year, part.month, part.day, value).catch(() => undefined);
+  };
+
+  const attendanceControl = (emp: Employee, part: { year: number; month: number; day: number }, onCycle: () => void) => {
+    const state = dayState(data.attendance[attendanceKey(emp.id, part.year, part.month, part.day)]);
+    const showMultiplier = emp.branch !== 'Labor' && ['present', 'one-half', 'double'].includes(state);
+    return (
+      <div className="day-cell-stack">
+        <button type="button" className={`day-cell day-${state}`} onClick={onCycle}>{DAY_LABEL[state]}</button>
+        {showMultiplier && (
+          <div className="day-multiplier-actions">
+            <button type="button" className={state === 'one-half' ? 'active' : ''} title="Count as 1.5 payable days" aria-label={`${emp.name}: count as 1.5 days`} onClick={() => setWorkMultiplier(emp, part, 1.5)}>1.5×</button>
+            <button type="button" className={state === 'double' ? 'active' : ''} title="Count as 2 payable days" aria-label={`${emp.name}: count as 2 days`} onClick={() => setWorkMultiplier(emp, part, 2)}>2×</button>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const salaryRows = useMemo(
@@ -130,6 +164,89 @@ export function Attendance() {
       .map((row) => ({ ...row, recovered: row.given - outstandingAdvanceFor(data, row.employee?.id ?? ''), remaining: outstandingAdvanceFor(data, row.employee?.id ?? '') }))
       .sort((a, b) => b.remaining - a.remaining);
   }, [data]);
+
+  const groups = useMemo(() => {
+    const map = new Map<string, { name: string; members: Array<{ employee: Employee; role: string; isHead: boolean }> }>();
+    activeEmployees.forEach((employee) => {
+      const assignment = employeeGroupAssignment(employee);
+      if (!assignment) return;
+      const key = assignment.name.toLowerCase();
+      const group = map.get(key) ?? { name: assignment.name, members: [] };
+      group.members.push({ employee, role: assignment.role, isHead: assignment.isHead });
+      map.set(key, group);
+    });
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [activeEmployees]);
+  const filteredGroups = useMemo(
+    () => groups.filter((group) => `${group.name} ${group.members.map((member) => `${member.employee.name} ${member.role}`).join(' ')}`.toLowerCase().includes(query.toLowerCase())),
+    [groups, query],
+  );
+
+  const openCreateGroup = () => {
+    setGroupDraft({ originalName: '', name: '', headId: activeEmployees[0]?.id ?? '', memberRoles: {} });
+    setGroupError('');
+    setGroupModalOpen(true);
+  };
+
+  const openEditGroup = (name: string) => {
+    const group = groups.find((candidate) => candidate.name === name);
+    if (!group) return;
+    const head = group.members.find((member) => member.isHead)?.employee ?? group.members[0]?.employee;
+    setGroupDraft({
+      originalName: group.name,
+      name: group.name,
+      headId: head?.id ?? '',
+      memberRoles: Object.fromEntries(group.members.filter((member) => member.employee.id !== head?.id).map((member) => [member.employee.id, member.role])),
+    });
+    setGroupError('');
+    setGroupModalOpen(true);
+  };
+
+  const submitGroup = async (event: FormEvent) => {
+    event.preventDefault();
+    const name = groupDraft.name.trim();
+    if (!name || !groupDraft.headId) {
+      setGroupError('Group name and group head are mandatory.');
+      return;
+    }
+    if (groups.some((group) => group.name.toLowerCase() === name.toLowerCase() && group.name !== groupDraft.originalName)) {
+      setGroupError('Another group already uses this name.');
+      return;
+    }
+    const selected = new Map<string, { role: string; isHead: boolean }>([
+      [groupDraft.headId, { role: 'Group Head', isHead: true }],
+      ...Object.entries(groupDraft.memberRoles)
+        .filter(([employeeId]) => employeeId !== groupDraft.headId)
+        .map(([employeeId, role]) => [employeeId, { role: role || 'Member', isHead: false }] as const),
+    ]);
+    try {
+      for (const employee of activeEmployees) {
+        const current = employeeGroupAssignment(employee);
+        const selectedRole = selected.get(employee.id);
+        const belongsToEditedGroup = current && (
+          current.name.toLowerCase() === groupDraft.originalName.toLowerCase()
+          || current.name.toLowerCase() === name.toLowerCase()
+        );
+        if (selectedRole) {
+          await app.upsertEmployee(setEmployeeGroup(employee, { name, ...selectedRole }));
+        } else if (belongsToEditedGroup) {
+          await app.upsertEmployee(setEmployeeGroup(employee, null));
+        }
+      }
+      setGroupModalOpen(false);
+      setGroupError('');
+    } catch {
+      setGroupError('Some group assignments could not be saved. Review the sync message and try again.');
+    }
+  };
+
+  const disbandGroup = async (name: string) => {
+    if (!confirm(`Disband ${name}? Employees and their attendance records will remain available.`)) return;
+    const members = activeEmployees.filter((employee) => employeeGroupAssignment(employee)?.name.toLowerCase() === name.toLowerCase());
+    for (const employee of members) {
+      await app.upsertEmployee(setEmployeeGroup(employee, null)).catch(() => undefined);
+    }
+  };
 
   const openCreate = () => { setDraft({ ...emptyEmployee(), code: `EMP-${String(data.employees.length + 1).padStart(3, '0')}` }); setModalOpen(true); };
   const openEdit = (emp: Employee) => { setDraft(emp); setModalOpen(true); };
@@ -174,13 +291,14 @@ export function Attendance() {
     const bodyRows = rows.map(({ employee, index, summary, breakdown, advanceAmount, advanceDetails }) => {
       const attendanceCells = dayColumns.map((day) => {
         const state = dayState(data.attendance[attendanceKey(employee.id, year, month, day)]);
-        return `<td class="mark ${state}">${escapeHtml(DAY_LABEL[state])}</td>`;
+        const excelStyle = state === 'absent' ? ' style="background:#ff0000;color:#ffffff;font-weight:700"' : '';
+        return `<td class="mark ${state}"${excelStyle}>${escapeHtml(DAY_LABEL[state])}</td>`;
       }).join('');
-      return `<tr><td>${index + 1}</td><td class="name">${escapeHtml(employee.name)}</td>${attendanceCells}<td>${summary.presentDays}</td><td>${summary.weekOffs}</td><td>${summary.halfDays}</td><td>${number(summary.workingDays, 1)}</td><td>${number(summary.payableDays, 1)}</td><td>${number(breakdown.perDay)}</td><td>${number(advanceAmount)}</td><td>${number(breakdown.net)}</td><td class="reason">${advanceDetails || '—'}</td></tr>`;
+      return `<tr><td>${index + 1}</td><td class="name">${escapeHtml(employee.name)}</td>${attendanceCells}<td>${summary.presentDays}</td><td style="background:#ffe5e5;color:#c00000;font-weight:700">${summary.absentDays}</td><td>${summary.weekOffs}</td><td>${summary.halfDays}</td><td>${number(summary.workingDays, 1)}</td><td>${number(summary.payableDays, 1)}</td><td>${number(breakdown.perDay)}</td><td>${number(breakdown.earned)}</td><td>${number(advanceAmount)}</td><td>${number(breakdown.otherDeduction)}</td><td>${number(breakdown.totalDeductions)}</td><td>${number(breakdown.net)}</td><td class="reason">${advanceDetails || '—'}</td></tr>`;
     }).join('');
     const html = `<!doctype html><html><head><meta charset="utf-8"/><style>
-      table{border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;font-size:11px}td,th{border:1px solid #333;padding:4px;text-align:center;vertical-align:middle}.title{font-size:16px;font-weight:700;color:#c00000}.address{font-size:12px;color:#1f4e79}.meta{font-weight:700;text-align:left}.name{text-align:left;font-weight:700;min-width:160px}.sun{background:#ff0000;color:#fff}.mark.present{color:#111}.mark.absent{background:#ff1a1a;color:#111}.mark.half{background:#fff2cc}.mark.leave{background:#ffe699}.reason{min-width:200px;text-align:left}.summary{background:#a9d18e;font-weight:700}.empty{border:none}
-    </style></head><body><table><tr><td colspan="${total + 11}" class="title">${escapeHtml(data.settings.companyName)}</td></tr><tr><td colspan="${total + 11}" class="address">${escapeHtml(data.settings.address)}</td></tr><tr><td class="meta">Year</td><td class="meta">${year}</td><td colspan="${total + 9}" class="empty"></td></tr><tr><td class="meta">Month</td><td class="meta">${escapeHtml(label.split(' ')[0])}</td><td colspan="${total + 9}" class="empty"></td></tr><tr><th>S.No</th><th>Employee Name</th>${headerCells}<th class="summary">P</th><th class="summary">L</th><th class="summary">HD</th><th class="summary">Working Days</th><th class="summary">Days Payable</th><th class="summary">Per Day</th><th class="summary">Advance</th><th class="summary">Total</th><th class="summary">Advance Date / Reason</th></tr>${bodyRows}</table></body></html>`;
+      table{border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;font-size:11px}td,th{border:1px solid #333;padding:4px;text-align:center;vertical-align:middle}.title{font-size:16px;font-weight:700;color:#c00000}.address{font-size:12px;color:#1f4e79}.meta{font-weight:700;text-align:left}.name{text-align:left;font-weight:700;min-width:160px}.sun{background:#ff0000;color:#fff}.mark.present{color:#111}.mark.one-half{background:#d9ead3;color:#1f6b35;font-weight:700}.mark.double{background:#cfe2f3;color:#174a72;font-weight:700}.mark.absent{background:#ff0000;color:#fff;font-weight:700}.mark.half{background:#fff2cc}.mark.leave{background:#ffe699}.reason{min-width:200px;text-align:left}.summary{background:#a9d18e;font-weight:700}.empty{border:none}
+    </style></head><body><table><tr><td colspan="${total + 15}" class="title">${escapeHtml(data.settings.companyName)}</td></tr><tr><td colspan="${total + 15}" class="address">${escapeHtml(data.settings.address)}</td></tr><tr><td class="meta">Year</td><td class="meta">${year}</td><td colspan="${total + 13}" class="empty"></td></tr><tr><td class="meta">Month</td><td class="meta">${escapeHtml(label.split(' ')[0])}</td><td colspan="${total + 13}" class="empty"></td></tr><tr><th>S.No</th><th>Employee Name</th>${headerCells}<th class="summary">P</th><th class="summary" style="background:#ff0000;color:#ffffff;font-weight:700">A</th><th class="summary">L</th><th class="summary">HD</th><th class="summary">Working Days</th><th class="summary">Days Payable</th><th class="summary">Per Day</th><th class="summary">Earned</th><th class="summary">Advance Deduction</th><th class="summary">Other Deduction</th><th class="summary">Total Deductions</th><th class="summary">Net Payable</th><th class="summary">Advance Date / Reason</th></tr>${bodyRows}</table></body></html>`;
     const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -194,7 +312,7 @@ export function Attendance() {
     const advances = data.salaryAdvances.filter((advance) => advance.employeeId === e.id && advance.givenDate.startsWith(`${year}-${String(month).padStart(2, '0')}`));
     return {
       Code: e.code, Name: e.name, Gross: e.grossSalary, WorkingDays: attendance.workingDays, PayableDays: attendance.payableDays,
-      PerDay: b.perDay, Earned: b.earned, AdvanceDeducted: b.advanceDeduction, Other: b.otherDeduction, Net: b.net,
+      PerDay: b.perDay, Earned: b.earned, AdvanceDeducted: b.advanceDeduction, OtherDeduction: b.otherDeduction, TotalDeductions: b.totalDeductions, NetPayable: b.net,
       AdvanceDates: advances.map((advance) => advance.givenDate).join(', '), AdvanceReasons: advances.map((advance) => advance.note ?? '').filter(Boolean).join(' | '),
     };
   }));
@@ -265,23 +383,24 @@ export function Attendance() {
       </section>
 
       <div className="report-tabs">
-        {(['Attendance', 'Salary', 'Advances', 'Employees', 'Analytics'] as const).map((name) => (
+        {(['Attendance', 'Salary', 'Advances', 'Employees', 'Groups', 'Analytics'] as const).map((name) => (
           <button key={name} className={tab === name ? 'active' : ''} onClick={() => setTab(name)}>{name}</button>
         ))}
       </div>
 
-      {(tab === 'Attendance' || tab === 'Salary' || tab === 'Advances' || tab === 'Employees') && (
+      {(tab === 'Attendance' || tab === 'Salary' || tab === 'Advances' || tab === 'Employees' || tab === 'Groups') && (
         <div className="table-toolbar panel">
-          <SearchBar value={query} onChange={setQuery} placeholder="Search name, code or department..." />
+          <SearchBar value={query} onChange={setQuery} placeholder={tab === 'Groups' ? 'Search group, employee or role...' : 'Search name, code or department...'} />
           {tab === 'Attendance' && <button className="button secondary" onClick={exportAttendance}><Download size={17} /> Export register</button>}
           {tab === 'Salary' && <button className="button secondary" onClick={exportSalary}><Download size={17} /> Export salary</button>}
           {tab === 'Advances' && <button className="button secondary" onClick={exportAdvances}><Download size={17} /> Export advances</button>}
+          {tab === 'Groups' && <button className="button primary" disabled={!activeEmployees.length} onClick={openCreateGroup}><UsersRound size={17} /> Create group</button>}
         </div>
       )}
 
       {tab === 'Attendance' && (
         <section className="panel table-panel">
-          <div className="panel-header"><div><h2>Daily attendance — {periodLabel}</h2><span className="eyebrow">Tap a day to cycle Present → Absent → Half day → Blank</span></div></div>
+          <div className="panel-header"><div><h2>Daily attendance — {periodLabel}</h2><span className="eyebrow">Tap to cycle P → A → HD → blank. For present non-Labor staff, use 1.5× or 2× for overtime work.</span></div></div>
           {filtered.length === 0 ? <EmptyState title="No employees found" description={payCycleView === 'Weekly' ? 'Add Mesthri, Electrician, Tile Worker, Painter or weekly Labor staff to record weekly attendance.' : 'Add staff to start recording attendance.'} action={<button className="button primary" onClick={openCreate}><UserPlus size={17} /> Add employee</button>} /> : payCycleView === 'Weekly' ? (
             <div className="table-scroll">
               <table className="data-table attendance-table">
@@ -300,10 +419,9 @@ export function Attendance() {
                         <tr>
                           <td><strong>{emp.name}</strong><span>{emp.code} · {emp.branch}</span></td>
                           {weekParts.map((part) => {
-                            const state = dayState(data.attendance[attendanceKey(emp.id, part.year, part.month, part.day)]);
                             return (
                               <td key={`${part.year}-${part.month}-${part.day}`}>
-                                <button type="button" className={`day-cell day-${state}`} onClick={() => cycleDatePart(emp, part)}>{DAY_LABEL[state]}</button>
+                                {attendanceControl(emp, part, () => cycleDatePart(emp, part))}
                               </td>
                             );
                           })}
@@ -331,12 +449,12 @@ export function Attendance() {
                     return (
                       <Fragment key={emp.id}>
                         <tr>
-                          <td><strong>{emp.name}</strong><span>{emp.code} · {emp.department}</span></td>
+                          <td><strong>{emp.name}</strong><span>{emp.code} · {employeeDepartment(emp)}</span></td>
                           {Array.from({ length: total }, (_, i) => i + 1).map((d) => {
-                            const state = dayState(data.attendance[attendanceKey(emp.id, year, month, d)]);
+                            const part = { year, month, day: d };
                             return (
                               <td key={d}>
-                                <button type="button" className={`day-cell day-${state}`} onClick={() => cycleDay(emp, d)}>{DAY_LABEL[state]}</button>
+                                {attendanceControl(emp, part, () => cycleDay(emp, d))}
                               </td>
                             );
                           })}
@@ -381,10 +499,10 @@ export function Attendance() {
                                 void app.setDeductionDecision(e.id, periodKey, { ...decision, deductAdvance: checked, advanceDeducted: toDeduct }).catch(() => undefined);
                               }}
                             />
-                            {currency(outstandingAdvanceFor(data, e.id))}
+                            {currency(outstandingAdvanceFor(data, e.id, periodKey))}
                           </label>
-                          {decision.deductAdvance && decision.advanceDeducted > 0 && (
-                            <span style={{ display: 'block', fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Deducting {currency(decision.advanceDeducted)} this period</span>
+                          {decision.deductAdvance && b.advanceDeduction > 0 && (
+                            <span style={{ display: 'block', fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Deducting {currency(b.advanceDeduction)} this period</span>
                           )}
                           {outstandingAdvanceFor(data, e.id) > 0 && (
                             <button
@@ -505,7 +623,7 @@ export function Attendance() {
                       <td><strong>{e.name}</strong><span>{e.code}</span></td>
                       <td><span className="status-pill neutral">{e.branch}</span></td>
                       <td><span className={`soft-badge ${e.payCycle === 'Weekly' ? '' : 'warning-badge'}`}>{e.payCycle}</span></td>
-                      <td>{e.department}</td>
+                      <td>{employeeDepartment(e) || '—'}{employeeGroupAssignment(e) && <span>{employeeGroupAssignment(e)?.name} · {employeeGroupAssignment(e)?.role}</span>}</td>
                       <td><strong>{currency(e.grossSalary)}</strong><span>per day</span></td>
                       <td>{e.bankName ? <>{e.bankName}<span>{e.accountNumber} · {e.ifscCode}</span></> : '—'}</td>
                       <td>{currency(outstandingAdvanceFor(data, e.id))}</td>
@@ -522,6 +640,73 @@ export function Attendance() {
             </div>
           )}
         </section>
+      )}
+
+      {tab === 'Groups' && (
+        <div className="page-stack">
+          {filteredGroups.length === 0 ? (
+            <section className="panel">
+              <EmptyState
+                title="No staff groups found"
+                description="Create a group, choose its group head, add employees from the dropdown and assign each member a role."
+                action={<button className="button primary" disabled={!activeEmployees.length} onClick={openCreateGroup}><UsersRound size={17} /> Create first group</button>}
+              />
+            </section>
+          ) : filteredGroups.map((group) => {
+            const members = group.members.filter((member) => member.employee.payCycle === payCycleView);
+            const rows = members.map((member) => ({
+              ...member,
+              attendance: payCycleView === 'Weekly'
+                ? summarizeAttendanceForDates(data, member.employee.id, weekParts)
+                : summarizeAttendance(data, member.employee.id, year, month),
+              salary: payCycleView === 'Weekly'
+                ? calcEmployeeSalaryForDates(data, member.employee, weekParts, getDecision(member.employee.id))
+                : calcEmployeeSalary(data, member.employee, year, month, getDecision(member.employee.id)),
+            }));
+            const payableDays = rows.reduce((sum, row) => sum + row.attendance.payableDays, 0);
+            const netSalary = rows.reduce((sum, row) => sum + row.salary.net, 0);
+            const head = group.members.find((member) => member.isHead);
+            return (
+              <section className="panel table-panel group-panel" key={group.name}>
+                <div className="panel-header">
+                  <div>
+                    <span className="eyebrow">{group.members.length} total members · {members.length} {payCycleView.toLowerCase()} staff</span>
+                    <h2>{group.name}</h2>
+                    <p>Group head: <strong>{head?.employee.name ?? 'Not assigned'}</strong> · Payable days: <strong>{number(payableDays, 1)}</strong> · Net salary: <strong>{currency(netSalary)}</strong></p>
+                  </div>
+                  <div className="row-actions">
+                    <button className="button secondary" onClick={() => openEditGroup(group.name)}><Pencil size={16} /> Manage</button>
+                    <button className="icon-button danger" aria-label={`Disband ${group.name}`} onClick={() => void disbandGroup(group.name)}><Trash2 size={16} /></button>
+                  </div>
+                </div>
+                {rows.length === 0 ? (
+                  <div className="group-cycle-empty">No {payCycleView.toLowerCase()} employees in this group. Switch the payroll cycle above to view the other members.</div>
+                ) : (
+                  <div className="table-scroll">
+                    <table className="data-table">
+                      <thead><tr><th>Employee</th><th>Group role</th><th>Branch</th><th>Present / weighted days</th><th>Absent</th><th>Half day</th><th>Payable days</th><th>Rate / day</th><th>Earned</th><th>Deductions</th><th>Net payable</th></tr></thead>
+                      <tbody>{rows.map((row) => (
+                        <tr key={row.employee.id}>
+                          <td><strong>{row.employee.name}</strong><span>{row.employee.code} · {employeeDepartment(row.employee) || 'No department'}</span></td>
+                          <td><span className={`status-pill ${row.isHead ? 'success' : 'neutral'}`}>{row.role}</span></td>
+                          <td>{row.employee.branch}</td>
+                          <td className="positive-text">{number(row.attendance.presentDays, 1)}</td>
+                          <td className="negative-text">{number(row.attendance.absentDays, 1)}</td>
+                          <td>{number(row.attendance.halfDays, 1)}</td>
+                          <td><strong>{number(row.attendance.payableDays, 1)}</strong></td>
+                          <td>{currency(row.employee.grossSalary)}</td>
+                          <td>{currency(row.salary.earned)}</td>
+                          <td className="negative-text">-{currency(row.salary.totalDeductions)}</td>
+                          <td><strong className="positive-text">{currency(row.salary.net)}</strong></td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
       )}
 
       {tab === 'Analytics' && (
@@ -693,7 +878,7 @@ export function Attendance() {
                       <tr key={emp.id}>
                         <td><strong>{emp.name}</strong><span>{emp.code}</span></td>
                         <td><span className="status-pill neutral">{emp.branch}</span></td>
-                        <td>{emp.department || '—'}</td>
+                        <td>{employeeDepartment(emp) || '—'}</td>
                         <td>{currency(emp.grossSalary)}</td>
                         <td className="positive-text">{summary.presentDays}</td>
                         <td className="negative-text">{summary.absentDays}</td>
@@ -710,13 +895,64 @@ export function Attendance() {
         </>
       )}
 
+      <Modal open={groupModalOpen} title={groupDraft.originalName ? `Manage ${groupDraft.originalName}` : 'Create staff group'} subtitle="Choose one group head, add employees and assign a clear role to every member." onClose={() => setGroupModalOpen(false)} wide>
+        <form onSubmit={submitGroup} className="form-stack">
+          {groupError && <div className="alert danger-alert">{groupError}</div>}
+          <div className="form-grid two">
+            <label><span>Group name *</span><input required value={groupDraft.name} onChange={(event) => setGroupDraft({ ...groupDraft, name: event.target.value })} placeholder="Example: Electrical Team A" /></label>
+            <label><span>Group head *</span>
+              <select required value={groupDraft.headId} onChange={(event) => {
+                const memberRoles = { ...groupDraft.memberRoles };
+                delete memberRoles[event.target.value];
+                setGroupDraft({ ...groupDraft, headId: event.target.value, memberRoles });
+              }}>
+                <option value="">Select group head</option>
+                {activeEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name} · {employee.code}{employeeGroupAssignment(employee) ? ` · ${employeeGroupAssignment(employee)?.name}` : ''}</option>)}
+              </select>
+            </label>
+            <label className="span-2"><span>Add employee from dropdown</span>
+              <select value="" onChange={(event) => {
+                const employeeId = event.target.value;
+                if (!employeeId) return;
+                setGroupDraft({ ...groupDraft, memberRoles: { ...groupDraft.memberRoles, [employeeId]: 'Member' } });
+              }}>
+                <option value="">Choose employee to add...</option>
+                {activeEmployees.filter((employee) => employee.id !== groupDraft.headId && !groupDraft.memberRoles[employee.id]).map((employee) => <option key={employee.id} value={employee.id}>{employee.name} · {employee.code} · {employee.branch}{employeeGroupAssignment(employee) ? ` · currently ${employeeGroupAssignment(employee)?.name}` : ''}</option>)}
+              </select>
+              <small>Employees already in another group can be reassigned here. Attendance and salary history remains with the employee.</small>
+            </label>
+          </div>
+          <div className="group-member-editor">
+            <div className="group-member-heading"><strong>Selected members</strong><span>{Object.keys(groupDraft.memberRoles).length} employees, plus the group head</span></div>
+            {Object.keys(groupDraft.memberRoles).length === 0 ? <div className="group-cycle-empty">Add employees using the dropdown above. A group can also start with only its head.</div> : (
+              Object.entries(groupDraft.memberRoles).map(([employeeId, role]) => {
+                const employee = activeEmployees.find((candidate) => candidate.id === employeeId);
+                if (!employee) return null;
+                return (
+                  <div className="group-member-row" key={employeeId}>
+                    <div><strong>{employee.name}</strong><span>{employee.code} · {employee.branch} · {employeeDepartment(employee) || 'No department'}</span></div>
+                    <label><span>Role</span><select value={role} onChange={(event) => setGroupDraft({ ...groupDraft, memberRoles: { ...groupDraft.memberRoles, [employeeId]: event.target.value } })}>{GROUP_ROLES.map((item) => <option key={item}>{item}</option>)}</select></label>
+                    <button type="button" className="icon-button danger" aria-label={`Remove ${employee.name} from group`} onClick={() => {
+                      const memberRoles = { ...groupDraft.memberRoles };
+                      delete memberRoles[employeeId];
+                      setGroupDraft({ ...groupDraft, memberRoles });
+                    }}><Trash2 size={16} /></button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <div className="form-actions"><button type="button" className="button secondary" onClick={() => setGroupModalOpen(false)}>Cancel</button><button className="button primary"><UsersRound size={16} /> Save group</button></div>
+        </form>
+      </Modal>
+
       <Modal open={modalOpen} title={data.employees.some((e) => e.id === draft.id) ? 'Edit employee' : 'Add employee'} subtitle="Salary structure used for attendance-based payroll calculation." onClose={() => setModalOpen(false)} wide>
         <form onSubmit={submitEmployee} className="form-stack">
           <div className="form-grid three">
             <label><span>Employee code *</span><input required value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value })} /></label>
             <label className="span-2"><span>Full name *</span><input required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
             <label><span>Branch</span><select value={draft.branch} onChange={(e) => setDraft({ ...draft, branch: e.target.value as StaffBranch })}>{branches.map((b) => <option key={b}>{b}</option>)}</select></label>
-            <label><span>Department</span><input value={draft.department} onChange={(e) => setDraft({ ...draft, department: e.target.value })} placeholder="Site engineering, Stores..." /></label>
+            <label><span>Department</span><input value={employeeDepartment(draft)} onChange={(e) => setDraft(setEmployeeDepartment(draft, e.target.value))} placeholder="Site engineering, Stores..." /></label>
             <label><span>Pay cycle</span><select value={draft.payCycle} onChange={(e) => setDraft({ ...draft, payCycle: e.target.value as PayCycle })}><option>Weekly</option><option>Monthly</option></select></label>
             <label><span>Gross salary (per day) *</span><NumberField required value={draft.grossSalary} onChange={(value) => setDraft({ ...draft, grossSalary: value ?? 0 })} min="0" step="0.01" /></label>
             <label><span>Other deduction</span><NumberField value={draft.otherDeduction} onChange={(value) => setDraft({ ...draft, otherDeduction: value ?? 0 })} min="0" /></label>

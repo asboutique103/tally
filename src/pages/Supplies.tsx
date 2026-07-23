@@ -10,9 +10,10 @@ import {
   amountInIndianWords, currency, downloadCsv, gstAmount, inventoryRows, nextDocumentNo,
   stockShortage, supplyTotal, taxableAmount, today, uid,
 } from '../lib/helpers';
+import { printInvoiceWhenReady } from '../lib/print';
 import { cleanText, hasDuplicate, hasValidItems, isFilled } from '../lib/validation';
 import { useApp } from '../store/AppContext';
-import type { GstType, Supply } from '../types';
+import type { Supply } from '../types';
 
 const formatDate = (value: string) => value ? new Date(value).toLocaleDateString('en-IN') : '—';
 const numberForInvoice = (value: number) => (value || 0).toLocaleString('en-IN', { minimumFractionDigits: value % 1 ? 2 : 0, maximumFractionDigits: 2 });
@@ -93,7 +94,7 @@ export function Supplies() {
 
   const printSupply = (supply: Supply) => {
     setView(supply);
-    setTimeout(() => window.print(), 120);
+    printInvoiceWhenReady();
   };
 
   return (
@@ -194,7 +195,7 @@ export function Supplies() {
           return (
             <div className="vmv-invoice">
               <div className="vmv-company-box">
-                <img src="/logo.png" alt="Company logo" className="vmv-logo" />
+                <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Company logo" className="vmv-logo" />
                 <h1>{data.settings.companyName}</h1>
                 <p>{data.settings.address}</p>
                 <div><strong>GST NO :</strong><span>{data.settings.gstin || '—'}</span><strong>PH NO –</strong><span>{data.settings.phone || '—'}</span></div>
@@ -250,7 +251,7 @@ export function Supplies() {
                 </div>
                 <div className="vmv-sign"><strong>FOR {data.settings.companyName}</strong><span>Authorized Signatory</span></div>
               </div>
-              <div className="form-actions no-print"><button className="button primary" onClick={() => window.print()}><Printer size={17} /> Print invoice</button></div>
+              <div className="form-actions no-print"><button className="button primary" onClick={printInvoiceWhenReady}><Printer size={17} /> Print invoice</button></div>
             </div>
           );
         })()}
