@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useMemo, useState, type FormEvent } from 'react';
-import { Ban, Calendar as CalendarIcon, Check, CreditCard, Download, Pencil, Plus, TrendingUp, Trash2, UserPlus, Users, UsersRound } from 'lucide-react';
+import { Ban, Calendar as CalendarIcon, Check, CreditCard, Download, Eye, Pencil, Plus, TrendingUp, Trash2, UserPlus, Users, UsersRound } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { EmptyState } from '../components/EmptyState';
 import { Modal } from '../components/Modal';
@@ -60,6 +60,7 @@ export function Attendance() {
   const [advanceReason, setAdvanceReason] = useState('');
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [selectedGroupName, setSelectedGroupName] = useState<string | null>(null);
   const [groupDraft, setGroupDraft] = useState<GroupDraft>({ originalName: '', name: '', headId: '', memberRoles: {} });
   const [groupError, setGroupError] = useState('');
 
@@ -181,6 +182,51 @@ export function Attendance() {
     () => groups.filter((group) => `${group.name} ${group.members.map((member) => `${member.employee.name} ${member.role}`).join(' ')}`.toLowerCase().includes(query.toLowerCase())),
     [groups, query],
   );
+  const selectedGroup = groups.find((group) => group.name === selectedGroupName) ?? null;
+  const groupDetailDates = useMemo(
+    () => payCycleView === 'Weekly'
+      ? weekParts
+      : Array.from({ length: total }, (_, index) => ({ year, month, day: index + 1 })),
+    [payCycleView, weekParts, total, year, month],
+  );
+  const selectedGroupRows = useMemo(() => {
+    if (!selectedGroup) return [];
+    return selectedGroup.members
+      .filter((member) => member.employee.payCycle === payCycleView)
+      .map((member) => ({
+        ...member,
+        attendance: payCycleView === 'Weekly'
+          ? summarizeAttendanceForDates(data, member.employee.id, weekParts)
+          : summarizeAttendance(data, member.employee.id, year, month),
+        salary: payCycleView === 'Weekly'
+          ? calcEmployeeSalaryForDates(data, member.employee, weekParts, getDecision(member.employee.id))
+          : calcEmployeeSalary(data, member.employee, year, month, getDecision(member.employee.id)),
+        outstandingAdvance: outstandingAdvanceFor(data, member.employee.id),
+      }))
+      .sort((a, b) => Number(b.isHead) - Number(a.isHead)
+        || (a.role || 'Unassigned').localeCompare(b.role || 'Unassigned')
+        || a.employee.name.localeCompare(b.employee.name));
+  }, [selectedGroup, payCycleView, data, weekParts, getDecision, year, month]);
+  const selectedGroupTotals = selectedGroupRows.reduce((totals, row) => ({
+    payableDays: totals.payableDays + row.attendance.payableDays,
+    earned: totals.earned + row.salary.earned,
+    advance: totals.advance + row.salary.advanceDeduction,
+    outstandingAdvance: totals.outstandingAdvance + row.outstandingAdvance,
+    deductions: totals.deductions + row.salary.totalDeductions,
+    net: totals.net + row.salary.net,
+  }), { payableDays: 0, earned: 0, advance: 0, outstandingAdvance: 0, deductions: 0, net: 0 });
+  const selectedRoleTotals = useMemo(() => {
+    const roleMap = new Map<string, { members: number; payableDays: number; net: number }>();
+    selectedGroupRows.forEach((row) => {
+      const role = row.isHead ? 'Group Head' : row.role || 'Role not assigned';
+      const current = roleMap.get(role) ?? { members: 0, payableDays: 0, net: 0 };
+      current.members += 1;
+      current.payableDays += row.attendance.payableDays;
+      current.net += row.salary.net;
+      roleMap.set(role, current);
+    });
+    return [...roleMap.entries()].map(([role, totals]) => ({ role, ...totals }));
+  }, [selectedGroupRows]);
 
   const openCreateGroup = () => {
     setGroupDraft({ originalName: '', name: '', headId: activeEmployees[0]?.id ?? '', memberRoles: {} });
@@ -217,7 +263,7 @@ export function Attendance() {
       [groupDraft.headId, { role: 'Group Head', isHead: true }],
       ...Object.entries(groupDraft.memberRoles)
         .filter(([employeeId]) => employeeId !== groupDraft.headId)
-        .map(([employeeId, role]) => [employeeId, { role: role || 'Member', isHead: false }] as const),
+        .map(([employeeId, role]) => [employeeId, { role: role.trim(), isHead: false }] as const),
     ]);
     try {
       for (const employee of activeEmployees) {
@@ -675,6 +721,7 @@ export function Attendance() {
                     <p>Group head: <strong>{head?.employee.name ?? 'Not assigned'}</strong> · Payable days: <strong>{number(payableDays, 1)}</strong> · Net salary: <strong>{currency(netSalary)}</strong></p>
                   </div>
                   <div className="row-actions">
+                    <button className="button secondary" onClick={() => setSelectedGroupName(group.name)}><Eye size={16} /> View details</button>
                     <button className="button secondary" onClick={() => openEditGroup(group.name)}><Pencil size={16} /> Manage</button>
                     <button className="icon-button danger" aria-label={`Disband ${group.name}`} onClick={() => void disbandGroup(group.name)}><Trash2 size={16} /></button>
                   </div>
@@ -688,7 +735,7 @@ export function Attendance() {
                       <tbody>{rows.map((row) => (
                         <tr key={row.employee.id}>
                           <td><strong>{row.employee.name}</strong><span>{row.employee.code} · {employeeDepartment(row.employee) || 'No department'}</span></td>
-                          <td><span className={`status-pill ${row.isHead ? 'success' : 'neutral'}`}>{row.role}</span></td>
+                          <td><span className={`status-pill ${row.isHead ? 'success' : 'neutral'}`}>{row.role || 'Not assigned'}</span></td>
                           <td>{row.employee.branch}</td>
                           <td className="positive-text">{number(row.attendance.presentDays, 1)}</td>
                           <td className="negative-text">{number(row.attendance.absentDays, 1)}</td>
@@ -895,7 +942,118 @@ export function Attendance() {
         </>
       )}
 
-      <Modal open={groupModalOpen} title={groupDraft.originalName ? `Manage ${groupDraft.originalName}` : 'Create staff group'} subtitle="Choose one group head, add employees and assign a clear role to every member." onClose={() => setGroupModalOpen(false)} wide>
+      <Modal
+        open={Boolean(selectedGroup)}
+        title={selectedGroup?.name ?? 'Group details'}
+        subtitle={`${periodLabel} attendance, payroll and role-wise totals`}
+        onClose={() => setSelectedGroupName(null)}
+        extraWide
+      >
+        {selectedGroup && (
+          <div className="group-detail-sheet">
+            <section className="group-detail-stats">
+              <div><span>Group head</span><strong>{selectedGroup.members.find((member) => member.isHead)?.employee.name ?? 'Not assigned'}</strong></div>
+              <div><span>Staff in cycle</span><strong>{selectedGroupRows.length}</strong></div>
+              <div><span>Payable days</span><strong>{number(selectedGroupTotals.payableDays, 1)}</strong></div>
+              <div><span>Earned salary</span><strong>{currency(selectedGroupTotals.earned)}</strong></div>
+              <div><span>Total deductions</span><strong className="negative-text">{currency(selectedGroupTotals.deductions)}</strong></div>
+              <div><span>Net payable</span><strong className="positive-text">{currency(selectedGroupTotals.net)}</strong></div>
+            </section>
+
+            {selectedGroupRows.length === 0 ? (
+              <div className="group-cycle-empty">No {payCycleView.toLowerCase()} employees are assigned to this group.</div>
+            ) : (
+              <>
+                <section className="group-attendance-sheet">
+                  <div className="group-sheet-title">
+                    <div><span className="eyebrow">{payCycleView} payroll sheet</span><h3>{selectedGroup.name}</h3></div>
+                    <div><span>{periodLabel}</span><strong>{selectedGroupRows.length} members</strong></div>
+                  </div>
+                  <div className="table-scroll">
+                    <table className="group-sheet-table">
+                      <thead>
+                        <tr>
+                          <th className="sticky-name">Employee</th>
+                          <th>Role</th>
+                          {groupDetailDates.map((part) => {
+                            const date = new Date(part.year, part.month - 1, part.day);
+                            const sunday = date.getDay() === 0;
+                            return <th className={sunday ? 'sunday-column' : ''} key={`${part.year}-${part.month}-${part.day}`}><strong>{part.day}</strong><span>{date.toLocaleDateString('en-IN', { weekday: 'short' })}</span></th>;
+                          })}
+                          <th>Present / weighted</th>
+                          <th>Absent</th>
+                          <th>Half day</th>
+                          <th>Rate / day</th>
+                          <th>Earned</th>
+                          <th>Advance deducted</th>
+                          <th>Other deduction</th>
+                          <th>Net payable</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedGroupRows.map((row) => (
+                          <tr key={row.employee.id}>
+                            <td className="sticky-name"><strong>{row.employee.name}</strong><span>{row.employee.code} · {row.employee.branch}</span></td>
+                            <td><span className={`status-pill ${row.isHead ? 'success' : 'neutral'}`}>{row.isHead ? 'Group Head' : row.role || 'Not assigned'}</span></td>
+                            {groupDetailDates.map((part) => {
+                              const state = dayState(data.attendance[attendanceKey(row.employee.id, part.year, part.month, part.day)]);
+                              return <td className={`group-day-value group-day-${state}`} key={`${row.employee.id}-${part.year}-${part.month}-${part.day}`}>{DAY_LABEL[state] || '—'}</td>;
+                            })}
+                            <td className="positive-text"><strong>{number(row.attendance.presentDays, 1)}</strong></td>
+                            <td className="negative-text"><strong>{number(row.attendance.absentDays, 1)}</strong></td>
+                            <td>{number(row.attendance.halfDays, 1)}</td>
+                            <td>{currency(row.employee.grossSalary)}</td>
+                            <td><strong>{currency(row.salary.earned)}</strong></td>
+                            <td>{currency(row.salary.advanceDeduction)}</td>
+                            <td>{currency(row.salary.otherDeduction)}</td>
+                            <td className="positive-text"><strong>{currency(row.salary.net)}</strong></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td className="sticky-name" colSpan={2 + groupDetailDates.length}>Group total</td>
+                          <td>{number(selectedGroupTotals.payableDays, 1)}</td>
+                          <td>—</td>
+                          <td>—</td>
+                          <td>—</td>
+                          <td>{currency(selectedGroupTotals.earned)}</td>
+                          <td>{currency(selectedGroupTotals.advance)}</td>
+                          <td>{currency(selectedGroupTotals.deductions - selectedGroupTotals.advance)}</td>
+                          <td className="positive-text">{currency(selectedGroupTotals.net)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </section>
+
+                <section className="group-detail-bottom">
+                  <div className="group-role-totals">
+                    <div className="group-detail-heading"><span className="eyebrow">Role breakdown</span><h3>Team totals by role</h3></div>
+                    {selectedRoleTotals.map((row) => (
+                      <div className="group-role-total-row" key={row.role}>
+                        <div><strong>{row.role}</strong><span>{row.members} member{row.members === 1 ? '' : 's'}</span></div>
+                        <div><span>Days</span><strong>{number(row.payableDays, 1)}</strong></div>
+                        <div><span>Net</span><strong>{currency(row.net)}</strong></div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="group-money-summary">
+                    <div className="group-detail-heading"><span className="eyebrow">Payment overview</span><h3>Salary settlement</h3></div>
+                    <div><span>Earned salary</span><strong>{currency(selectedGroupTotals.earned)}</strong></div>
+                    <div><span>Advance deducted this period</span><strong>{currency(selectedGroupTotals.advance)}</strong></div>
+                    <div><span>All deductions</span><strong>{currency(selectedGroupTotals.deductions)}</strong></div>
+                    <div><span>Outstanding staff advances</span><strong>{currency(selectedGroupTotals.outstandingAdvance)}</strong></div>
+                    <div className="group-money-net"><span>Net payable</span><strong>{currency(selectedGroupTotals.net)}</strong></div>
+                  </div>
+                </section>
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={groupModalOpen} title={groupDraft.originalName ? `Manage ${groupDraft.originalName}` : 'Create staff group'} subtitle="Choose one group head, then add members. Member roles are optional and start blank." onClose={() => setGroupModalOpen(false)} wide>
         <form onSubmit={submitGroup} className="form-stack">
           {groupError && <div className="alert danger-alert">{groupError}</div>}
           <div className="form-grid two">
@@ -914,7 +1072,7 @@ export function Attendance() {
               <select value="" onChange={(event) => {
                 const employeeId = event.target.value;
                 if (!employeeId) return;
-                setGroupDraft({ ...groupDraft, memberRoles: { ...groupDraft.memberRoles, [employeeId]: 'Member' } });
+                setGroupDraft({ ...groupDraft, memberRoles: { ...groupDraft.memberRoles, [employeeId]: '' } });
               }}>
                 <option value="">Choose employee to add...</option>
                 {activeEmployees.filter((employee) => employee.id !== groupDraft.headId && !groupDraft.memberRoles[employee.id]).map((employee) => <option key={employee.id} value={employee.id}>{employee.name} · {employee.code} · {employee.branch}{employeeGroupAssignment(employee) ? ` · currently ${employeeGroupAssignment(employee)?.name}` : ''}</option>)}
@@ -931,7 +1089,7 @@ export function Attendance() {
                 return (
                   <div className="group-member-row" key={employeeId}>
                     <div><strong>{employee.name}</strong><span>{employee.code} · {employee.branch} · {employeeDepartment(employee) || 'No department'}</span></div>
-                    <label><span>Role</span><select value={role} onChange={(event) => setGroupDraft({ ...groupDraft, memberRoles: { ...groupDraft.memberRoles, [employeeId]: event.target.value } })}>{GROUP_ROLES.map((item) => <option key={item}>{item}</option>)}</select></label>
+                    <label><span>Role (optional)</span><select value={role} onChange={(event) => setGroupDraft({ ...groupDraft, memberRoles: { ...groupDraft.memberRoles, [employeeId]: event.target.value } })}><option value="">Select role</option>{GROUP_ROLES.map((item) => <option key={item}>{item}</option>)}</select></label>
                     <button type="button" className="icon-button danger" aria-label={`Remove ${employee.name} from group`} onClick={() => {
                       const memberRoles = { ...groupDraft.memberRoles };
                       delete memberRoles[employeeId];
