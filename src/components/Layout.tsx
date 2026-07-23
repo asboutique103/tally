@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   ScrollText,
   CreditCard,
+  BadgeIndianRupee,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -37,6 +38,7 @@ const nav = [
   { to: '/sites', label: 'Sites & Projects', icon: Building2 },
   { to: '/bills', label: 'Bills & Invoices', icon: ReceiptText },
   { to: '/payments', label: 'Payments', icon: CreditCard },
+  { to: '/credit', label: 'Credit', icon: BadgeIndianRupee },
   { to: '/accounts', label: 'Accounts & Vouchers', icon: BookOpenCheck },
   { to: '/attendance', label: 'Staff & Attendance', icon: Users },
   { to: '/reports', label: 'Reports & Ledgers', icon: ClipboardList },
@@ -61,7 +63,7 @@ export function Layout() {
     <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <aside className={`sidebar ${mobileOpen ? 'open' : ''} ${collapsed ? 'collapsed' : ''}`}>
         <div className="brand-row">
-          <div className="brand-mark brand-mark-logo"><img src="/logo.png" alt="VMV Enterprise" /></div>
+          <div className="brand-mark brand-mark-logo"><img src={`${import.meta.env.BASE_URL}logo.png`} alt="VMV Enterprise" /></div>
           <div><strong>VMV Enterprise</strong><span>Building Today · Creating Tomorrow</span></div>
         </div>
         <nav className="nav-list">
